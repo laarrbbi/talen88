@@ -1,0 +1,10 @@
+# Optional ML backend deps (model_service/ml). NOT required for the default
+# heuristic backend or to run the service/app. Install only to train or serve the
+# trained attrition model (SCORING_BACKEND=ml).
+#
+# macOS note: lightgbm needs OpenMP at runtime -> `brew install libomp`.
+lightgbm==4.6.0
+scikit-learn==1.9.0
+shap==0.51.0
+# pandas + numpy already pinned in the repo-root requirements.txt.
+joblib==1.5.3

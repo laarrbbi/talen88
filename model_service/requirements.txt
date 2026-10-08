@@ -1,0 +1,6 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+httpx==0.27.2
+pytest==8.3.3
+# Future (trained model seam — see train.py); intentionally NOT installed for the MVP:
+#   lightgbm, shap, pandas, scikit-learn

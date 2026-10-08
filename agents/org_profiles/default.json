@@ -1,0 +1,29 @@
+{
+  "display_name": "Talent88 (demo)",
+  "divisions": [
+    "front office",
+    "technology",
+    "risk & compliance",
+    "operations",
+    "corporate"
+  ],
+  "terminology": {
+    "flight risk": "modeled probability an employee leaves in the next 12 months (0-100)",
+    "value score": "modeled business value of retaining the employee (0-100)",
+    "act now": "high flight-risk AND high value at the same time — the priority quadrant",
+    "key person": "high value score; costly and slow to replace",
+    "comp gap": "how far base pay sits below the market band for the role",
+    "reason codes": "the model's top drivers of a score, each with a direction"
+  },
+  "comp_bands": {
+    "below band": "pay is under the role's market range; a known retention driver",
+    "in band": "pay is within the role's market range",
+    "above band": "pay is above the role's market range"
+  },
+  "survey_definitions": {
+    "engagement": "rolling pulse-survey engagement index (0-100)",
+    "mobility readiness": "panel score for readiness to move into a larger role (0-100)",
+    "learning velocity": "panel score for capacity to absorb new learning (0-100)"
+  },
+  "notes": "Talent88 is a financial-services workforce-intelligence demo. Speak plainly to a busy HR manager; refer to people only by token."
+}

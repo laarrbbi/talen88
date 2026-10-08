@@ -1,0 +1,29 @@
+# Secrets & keys (see SECURITY.md §2) — never commit
+.env
+.env.*
+!.env.example
+.localkey
+*.localkey
+*.key
+*.pem
+secrets/
+
+# Generated local database (rebuilt by `python -m data.generate`)
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+
+# Frontend
+node_modules/
+app/dist/
+
+# OS / zip junk
+.DS_Store
+__MACOSX/
