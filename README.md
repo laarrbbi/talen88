@@ -1,0 +1,136 @@
+# Talent88
+
+A **people-analytics platform** (MVP) on **synthetic data only**: it builds a unified
+**Employee 360**, scores a full panel of **8 metrics + capital figures** with transparent,
+explainable heuristics, layers **L1–L3 AI agents** that recommend (but never auto-execute)
+grounded actions, and surfaces everything in a finance-grade UI with **opt-in**
+notifications. Built as a clean modular monorepo with **strict seams** so a real ML model
+and the agent layer plug in **without rewriting the UI or the data access**.
+
+> Synthetic data only. No real personal data. Runs entirely locally — no third-party
+> cloud services. **No Level-4 / auto-execution anywhere** — a human always approves.
+
+## The four layers
+
+1. **Unified Data (Employee 360)** — `data/`: a token-keyed record joining core HR,
+   comp/perf, engagement (consented), learning, skills, mobility, and risk. The
+   spec-complete **canonical schema** (Talent88 v2 FINAL, 16 tables) is an additive
+   overlay that **ingestion** writes to, with the bias-audit / identity-proxy **scoring
+   wall**, consent gating, and §9 RED exclusions enforced by tests.
+2. **Intelligence Engine** — `model_service/`: 8 transparent scores + capital metrics,
+   each with reason codes and modeled-estimate caveats, behind one `/score` contract.
+3. **Agent Layer** — `agents/` (`:8002`): Conversational (read-only) + Retention /
+   Career / Learning / Workforce-Planning, all calling the seams **as tools**, capped at
+   **L3 (click-to-approve)**.
+4. **Engagement** — in-app, **opt-in**, transparent (`why`) notifications.
+
+Full design + seam map + autonomy ladder: [`ARCHITECTURE.md`](ARCHITECTURE.md).
+
+## Architecture at a glance
+
+```
+app/ (React/TS, :5173)
+  │  ── only talks to ─▶  data/ (:8000)  ──SQLite──▶  pulsescore.db
+  │                         │ query seam (tokens) · auth · scope · audit · encrypted PII
+  │                         └──HTTP──▶  model_service/ (:8001)   scoring seam
+  └── read + L3 approve ─▶  agents/ (:8002)  ──as the calling user──▶  data:8000 + model_service:8001
+```
+
+| Module | Responsibility |
+| ------ | -------------- |
+| `data/` | **The only place that touches the DB.** Schema, synthetic generator, query seam, auth, tamper-evident audit, encryption + key/BYOK seam, name-resolution boundary, notifications, HTTP API (`:8000`). |
+| `model_service/` | Scoring service (`:8001`). Transparent heuristic panel now; trained model swaps in behind `POST /score`. Tokens + features only. |
+| `agents/` | Agent layer (`:8002`). 5 L1–L3 agents that call the seams as tools; **no DB access**; autonomy capped at L3. Natural-language narratives via the LLM seam over tokenized data; per-org RAG context. |
+| `llm/` | Single LLM provider seam — `generate(messages)` over an OpenAI-compatible API; **local Ollama by default**; provider/model swap by env only; local-by-default with no silent egress. |
+| `app/` | React + TS + Vite UI (`:5173`). Reads **only** through `data/`'s API (+ agents read). Resolves names at one boundary. |
+
+## UI screens
+
+Finance-grade design language (OKLCH tokens, hand-rolled inline-SVG charts, light/dark).
+Every screen is token-only and resolves names at the single `NameTag` boundary.
+
+| Screen | Source | Notes |
+| ------ | ------ | ----- |
+| **Dashboard** | `pages/Dashboard.tsx` | KPI row, Risk × Value action matrix, risk-by-division bars, retention priorities. |
+| **Watchlist** | `pages/Watchlist.tsx` | Segmented band filter w/ live counts, mini-bar risk, Δ QoQ from real `risk_trend`, value tier, reason-code chips. Client-side filter/sort over one in-scope fetch. |
+| **Profile** | `pages/Profile.tsx` | Radial gauge, reason-code-weighted factor bars, `/360` trend chart, real mini-stats, capital metrics, skills. |
+| **Company Graph** | `pages/Graph.tsx` | Reporting hierarchy from `manager_token` + division/location/risk filters + keyword search, all **client-side** (no NL backend). |
+| **Surveys** | `pages/Surveys.tsx` | **UI shell on a local stub fixture** — no survey backend, no API calls; actions disabled and labelled. |
+| **Agents / Inbox / Login** | `pages/*.tsx` | App-native screens (agent runs + L3 approve, opt-in notifications, dev login). |
+
+**Data-gap empty states (backend punch-list).** Where the design shows a field the API
+does not yet expose — percentile, model confidence, trend event annotations, full role
+history, documents, per-employee survey responses, language/cert graph filters — the UI
+renders an explicit *"not yet available"* state rather than faking or hiding it.
+
+## Quick start
+
+Requires Python 3.11+ and Node 20+.
+
+```bash
+# 0. install Python deps + an ephemeral encryption key for local dev
+pip install -r requirements.txt          # fastapi, uvicorn, httpx, cryptography, pandas, openpyxl, pytest
+export PULSESCORE_DATA_KEY=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+
+# 1. generate the synthetic database (legacy + canonical tables, from the same seed)
+python -m data.generate --seed 7
+# (optional) ingest a source export into the canonical tables — AI-free pipeline
+# python -m data.ingestion.run <file> --adapter workday   # or engagement_survey:peakon
+
+# 2. start the scoring service (:8001), then populate the score panel
+python -m uvicorn model_service.service:app --port 8001 &
+python -m data.refresh                    # calls /score, writes scores + the 8-metric panel + capital
+
+# 3. start the data API (:8000) and the agent layer (:8002)
+python -m uvicorn data.api:app     --port 8000 &
+python -m uvicorn agents.service:app --port 8002 &
+
+# 4. run the UI (:5173)
+cd app && npm install && npm run dev
+```
+
+### Optional: local LLM for agent narratives
+
+Agents work fully without an LLM (they fall back to deterministic templates). To enable
+natural-language narratives, run a **local** [Ollama](https://ollama.com) model — nothing
+leaves your machine, and the agents only ever feed it tokenized, permission-scoped data:
+
+```bash
+# install Ollama (macOS: `brew install ollama`), then pull a small model and serve it
+ollama pull gemma3:1b
+ollama serve                                  # exposes http://localhost:11434
+```
+
+That is all — `llm/` defaults to that endpoint and model. To point at a different model or a
+hosted OpenAI-compatible endpoint, set env vars only (no code change); see `.env.example`
+(`TALENT88_LLM_*`). External endpoints are **opt-in** (`TALENT88_LLM_ALLOW_EXTERNAL=true`)
+and never used as a silent fallback. Details in [SECURITY.md](SECURITY.md) §5e.
+
+Open <http://localhost:5173>. Sign in as `admin@pulsescore.local` (all divisions) or a
+division manager such as `technology.manager@pulsescore.local` (scoped to their division).
+
+## Tests
+
+```bash
+pytest data/tests model_service/tests agents/tests llm/tests -q   # backend (Python)
+cd app && npm run build                                  # frontend strict typecheck + build
+```
+
+## The two seams (contracts)
+
+1. **Scoring seam** — `model_service` `POST /score`: feature rows (token-keyed) in;
+   `[{ employee_token, flight_risk, risk_trend, value_score, reason_codes[], metrics[],
+   capital[] }]` out. The trained-model swap point is untouched by the panel extension.
+2. **Query seam** — `data/` `get_employees(...)` / `get_employee_360(...)`: the single
+   source of employee/score data (token-only), with permission scoping + audit enforced
+   **inside** the seam. Agents call it as a tool and inherit those guarantees.
+
+## Security & privacy (first-class)
+
+Employees are **pseudonymous tokens** everywhere; PII lives only in a separate,
+**encrypted** identity table and is resolved to a name at one isolated, authorized,
+audited boundary (`POST /identity/resolve`). Parameterized SQL throughout, least
+privilege enforced inside the seams (and inherited by agents), tamper-evident audit log
+covering agent actions, externalized encryption keys with a BYOK seam, consented-signals
+gate (no covert monitoring), opt-in notifications, and safe (non-leaking) errors.
+**No Level-4 auto-execution exists.** Full model: [`SECURITY.md`](SECURITY.md).

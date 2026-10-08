@@ -1,0 +1,14 @@
+# Talent88 backend dependencies (pinned). Kept minimal and current.
+# Frontend deps live in app/package.json.
+fastapi==0.115.0
+uvicorn==0.30.6
+httpx==0.27.2
+aiofiles==23.2.1
+cryptography==43.0.1
+pandas==2.2.2
+openpyxl==3.1.5
+pytest==8.3.3
+# Document Import: multipart file upload + real CV text extraction (PDF / Word).
+python-multipart==0.0.9
+pypdf==4.3.1
+python-docx==1.1.2
