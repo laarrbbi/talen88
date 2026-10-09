@@ -14,6 +14,7 @@ from collections import Counter
 from datetime import date, datetime, timezone
 from typing import Any
 
+from . import canonical
 from .audit import write_audit
 from .auth import Actor
 from .survey_library import SCALES
@@ -125,7 +126,9 @@ def _resolve_tokens(conn: sqlite3.Connection, audience: dict[str, Any]) -> list[
     is taken as-is here — scope pinning happens at create time (it is baked into the
     stored audience_json), so launch/enroll resolve exactly what was authorized.
     """
-    where = ["1=1"]
+    # People who have left are never surveyed.
+    where = ["token NOT IN (SELECT ec.employee_token FROM employee_core ec "
+             f"WHERE NOT ({canonical.current_employee_sql('ec')}))"]
     params: list[Any] = []
     if audience.get("division"):
         where.append("division = ?")

@@ -208,12 +208,14 @@ def employees(
     comp_gap: float | None = Query(default=None, ge=0.0, le=1.0),
     sort: str | None = Query(default=None, max_length=32),
     limit: int | None = Query(default=None, ge=1, le=1000),
+    include_former: bool = Query(default=False),
 ) -> list[dict[str, Any]]:
     conn = get_connection()
     try:
         return query.get_employees(conn, actor=actor, division=division,
                                    manager_token=manager_token, risk_band=risk_band,
-                                   comp_gap=comp_gap, sort=sort, limit=limit)
+                                   comp_gap=comp_gap, sort=sort, limit=limit,
+                                   include_former=include_former)
     finally:
         conn.close()
 

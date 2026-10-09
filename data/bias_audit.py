@@ -59,7 +59,8 @@ def get_bias_audit_cohort(
         return {"trait": trait, "metric": metric, "cohorts": []}
 
     metric_sql = _OUTCOME_COLUMNS[metric]
-    # `trait` is whitelisted above; only the latest score per employee is aggregated.
+    # `trait` is whitelisted above; only the latest score per CURRENT employee is
+    # aggregated (people who left are not part of today's score distribution).
     rows = conn.execute(
         f"""
         SELECT ec.{trait} AS cohort, COUNT(*) AS n, AVG({metric_sql}) AS mean
@@ -70,7 +71,7 @@ def get_bias_audit_cohort(
                   FROM scores GROUP BY employee_token) ls
               ON ls.employee_token = sc.employee_token AND ls.m = sc.as_of_date
         ) s ON s.employee_token = ec.employee_token
-        WHERE ec.{trait} IS NOT NULL
+        WHERE ec.{trait} IS NOT NULL AND {canonical.current_employee_sql('ec')}
         GROUP BY ec.{trait}
         ORDER BY ec.{trait}
         """

@@ -23,6 +23,7 @@ import secrets
 import sqlite3
 from random import Random
 
+from . import canonical
 from .audit import write_audit
 from .auth import Actor
 from .security import crypto
@@ -119,17 +120,16 @@ def search_identities(
     raw query fragment (it is a partial name — PII) — only its length, for forensics.
     """
     needle = q.strip().lower()
+    # The picker offers current employees only; former employees' names still resolve
+    # through resolve_names wherever they appear historically.
+    base = ("SELECT e.token, e.role, e.division, e.location, i.full_name_enc "
+            "FROM employees e JOIN identities i ON i.token = e.token "
+            "LEFT JOIN employee_core ec ON ec.employee_token = e.token "
+            f"WHERE {canonical.current_employee_sql('ec')}")
     if actor.is_admin:
-        rows = conn.execute(
-            "SELECT e.token, e.role, e.division, e.location, i.full_name_enc "
-            "FROM employees e JOIN identities i ON i.token = e.token"
-        ).fetchall()
+        rows = conn.execute(base).fetchall()
     else:
-        rows = conn.execute(
-            "SELECT e.token, e.role, e.division, e.location, i.full_name_enc "
-            "FROM employees e JOIN identities i ON i.token = e.token WHERE e.division = ?",
-            (actor.division,),
-        ).fetchall()
+        rows = conn.execute(base + " AND e.division = ?", (actor.division,)).fetchall()
 
     matches: list[dict] = []
     if needle:

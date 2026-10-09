@@ -144,7 +144,9 @@ def list_divisions(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     counts = {
         r["division"]: r["n"]
         for r in conn.execute(
-            "SELECT division, COUNT(*) AS n FROM employees GROUP BY division"
+            "SELECT e.division, COUNT(*) AS n FROM employees e "
+            "LEFT JOIN employee_core ec ON ec.employee_token = e.token "
+            f"WHERE {canonical.current_employee_sql('ec')} GROUP BY e.division"
         )
     }
     rows = conn.execute("SELECT name FROM divisions ORDER BY name").fetchall()

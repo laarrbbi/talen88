@@ -83,13 +83,20 @@ def get_employees(
     comp_gap: float | None = None,
     sort: str | None = None,
     limit: int | None = None,
+    include_former: bool = False,
 ) -> list[dict[str, Any]]:
-    """Return employees (token-identified) joined with their latest score + reason codes."""
+    """Return employees (token-identified) joined with their latest score + reason codes.
+
+    Only current employees by default: people who have left (status 'terminated') are
+    excluded unless `include_former` is set, so they never show up as live flight risks.
+    """
     _, order_sql = _validate(risk_band, comp_gap, sort, limit)
     eff_division = _scope_division(actor, division)
 
     where: list[str] = []
     params: list[Any] = []
+    if not include_former:
+        where.append(canonical.current_employee_sql("ec"))
     if eff_division is not None:
         where.append("e.division = ?")
         params.append(eff_division)
@@ -113,9 +120,11 @@ def get_employees(
     sql = f"""
         SELECT e.token, e.role, e.level, e.division, e.team, e.manager_token,
                e.location, e.hire_date, e.employment_type,
+               COALESCE(ec.status, 'active') AS status,
                f.comp_gap, f.months_since_promotion, f.tenure_months, f.manager_changes_12mo,
                s.as_of_date AS score_date, s.flight_risk, s.value_score, s.risk_trend
         FROM employees e
+        LEFT JOIN employee_core ec ON ec.employee_token = e.token
         LEFT JOIN (
             SELECT fs.* FROM feature_snapshots fs
             JOIN (SELECT employee_token, MAX(as_of_date) AS m
@@ -138,7 +147,8 @@ def get_employees(
     write_audit(
         conn, actor_email=actor.email, action="get_employees",
         filters={"division": eff_division, "manager_token": manager_token,
-                 "risk_band": risk_band, "comp_gap": comp_gap, "sort": sort, "limit": limit},
+                 "risk_band": risk_band, "comp_gap": comp_gap, "sort": sort, "limit": limit,
+                 "include_former": include_former},
         result_count=len(records),
     )
     return records
@@ -165,6 +175,7 @@ def _build_record(conn: sqlite3.Connection, r: sqlite3.Row) -> dict[str, Any]:
         "role": r["role"], "level": r["level"], "division": r["division"],
         "team": r["team"], "manager_token": r["manager_token"], "location": r["location"],
         "hire_date": r["hire_date"], "employment_type": r["employment_type"],
+        "status": r["status"],
         "features": None if r["comp_gap"] is None else {
             "comp_gap": r["comp_gap"], "months_since_promotion": r["months_since_promotion"],
             "tenure_months": r["tenure_months"], "manager_changes_12mo": r["manager_changes_12mo"],
@@ -515,6 +526,10 @@ def search_people(
             where.append(frag)
             applied[key] = value
 
+    # People who left are not search results unless the caller asked for a status.
+    if "status" not in applied:
+        where.append(canonical.current_employee_sql("ec"))
+
     n = min(int(limit), _SEARCH_MAX) if limit else _SEARCH_MAX
     sql = f"""
         SELECT e.token, ec.role, ec.title, ec.level, ec.division, ec.team, ec.location,
@@ -601,7 +616,7 @@ def get_team_pulse(
     eff_division = _scope_division(actor, division)
     today = date.today()
 
-    where: list[str] = []
+    where: list[str] = [canonical.current_employee_sql("ec")]
     params: list[Any] = []
     if eff_division is not None:
         where.append("e.division = ?")
@@ -609,7 +624,7 @@ def get_team_pulse(
     if manager_token is not None:
         where.append("e.manager_token = ?")
         params.append(manager_token)
-    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+    where_sql = "WHERE " + " AND ".join(where)
 
     rows = conn.execute(
         f"""
@@ -619,6 +634,7 @@ def get_team_pulse(
                o.leave_return_date, o.onboarding_status, o.role_change_note,
                o.role_change_date, o.credential_name, o.credential_expiry
         FROM employees e
+        LEFT JOIN employee_core ec ON ec.employee_token = e.token
         LEFT JOIN employee_ops o ON o.employee_token = e.token
         {where_sql}
         """,

@@ -32,7 +32,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from . import bias_audit
+from . import bias_audit, canonical
 from .audit import write_audit
 from .auth import Actor
 from .query import QueryValidationError, _scope_division
@@ -84,11 +84,14 @@ def _cohort_filter(
     location: str | None,
     level: int | None,
     tenure_band: str | None,
+    current_only: bool = True,
 ) -> tuple[list[str], list[Any], str | None]:
     """Build the scoped WHERE for `employee_core ec`. Scope is enforced regardless of
-    any division the caller asked for (a manager can never widen past their own)."""
+    any division the caller asked for (a manager can never widen past their own).
+    Current employees only unless `current_only` is False (historical views such as
+    turnover need the leavers too)."""
     eff = _scope_division(actor, division)
-    where: list[str] = []
+    where: list[str] = [canonical.current_employee_sql("ec")] if current_only else []
     params: list[Any] = []
     if eff is not None:
         where.append("ec.division = ?")
@@ -120,7 +123,7 @@ def _cohort_rows(conn: sqlite3.Connection, where: list[str], params: list[Any]) 
     return conn.execute(
         f"""SELECT ec.employee_token AS token, ec.division AS division, ec.level AS level,
                    ec.location AS location, ec.manager_token AS manager_token,
-                   ec.hire_date AS hire_date
+                   ec.hire_date AS hire_date, ec.status AS status
             FROM employee_core ec {where_sql}""",
         params,
     ).fetchall()
@@ -223,12 +226,14 @@ def get_turnover(
     tenure_band: str | None = None, date_range: str | None = None,
 ) -> dict[str, Any]:
     start, end = _validate(level, tenure_band, date_range)
+    # Turnover is historical: the cohort includes the people who left.
     where, params, eff = _cohort_filter(actor, division=division, manager=manager,
-                                        location=location, level=level, tenure_band=tenure_band)
+                                        location=location, level=level, tenure_band=tenure_band,
+                                        current_only=False)
     scope = _scope_dict(eff, manager, location, level, tenure_band)
     where_sql = ("WHERE " + " AND ".join(where)) if where else ""
     rows = conn.execute(
-        f"""SELECT ec.employee_token AS token, ec.division AS division,
+        f"""SELECT ec.employee_token AS token, ec.division AS division, ec.status AS status,
                    la.attrition AS attrition, la.voluntary AS voluntary, la.regretted AS regretted,
                    la.term_date AS term_date, cm.tenure AS tenure, cm.tenure_at_exit AS tenure_at_exit
             FROM employee_core ec
@@ -238,14 +243,17 @@ def get_turnover(
         params,
     ).fetchall()
 
-    headcount = len(rows)
+    cohort_size = len(rows)
     leavers = [r for r in rows if r["attrition"] == 1]
     voluntary = sum(1 for r in leavers if r["voluntary"] == 1)
     regretted = sum(1 for r in leavers if r["regretted"] == 1)
     headline = {
-        "headcount": headcount,
+        # Headcount is who works here now; the attrition rate's denominator is everyone in
+        # the cohort over the period (current employees + leavers).
+        "headcount": sum(1 for r in rows if r["status"] not in canonical.FORMER_STATUSES),
+        "cohort_size": cohort_size,
         "leavers": len(leavers),
-        "attrition_rate": round(len(leavers) / headcount, 4) if headcount else 0.0,
+        "attrition_rate": round(len(leavers) / cohort_size, 4) if cohort_size else 0.0,
         "voluntary": voluntary,
         "involuntary": len(leavers) - voluntary,
         "regretted": regretted,
@@ -288,7 +296,7 @@ def get_turnover(
     else:
         trend = {"data_status": "insufficient_history", "points": []}
 
-    _audit(conn, actor, "turnover", scope, headcount)
+    _audit(conn, actor, "turnover", scope, cohort_size)
     return {"headline": headline, "by_segment": by_segment, "suppressed_segments": suppressed,
             "survival": survival, "trend": trend, "data_status": "ok", "scope": scope}
 
@@ -302,11 +310,15 @@ def get_drivers(
     tenure_band: str | None = None, date_range: str | None = None,
 ) -> dict[str, Any]:
     _validate(level, tenure_band, date_range)
+    # Leavers stay in the cohort for the risk-vs-attrition comparison; the driver ranking
+    # and risk distribution describe current employees only.
     where, params, eff = _cohort_filter(actor, division=division, manager=manager,
-                                        location=location, level=level, tenure_band=tenure_band)
+                                        location=location, level=level, tenure_band=tenure_band,
+                                        current_only=False)
     scope = _scope_dict(eff, manager, location, level, tenure_band)
     cohort = _cohort_rows(conn, where, params)
-    tokens = [r["token"] for r in cohort]
+    all_tokens = [r["token"] for r in cohort]
+    tokens = [r["token"] for r in cohort if r["status"] not in canonical.FORMER_STATUSES]
 
     top_drivers: list[dict[str, Any]] = []
     distribution: list[dict[str, Any]] = []
@@ -333,19 +345,22 @@ def get_drivers(
         distribution = _histogram([s["flight_risk"] for s in latest.values()],
                                   [0, 20, 40, 60, 80, 100])
 
+        aph = _ph(len(all_tokens))
         lv = conn.execute(
-            f"SELECT employee_token FROM label_attrition WHERE attrition = 1 AND employee_token IN ({ph})",
-            tokens,
+            f"SELECT employee_token FROM label_attrition WHERE attrition = 1 AND employee_token IN ({aph})",
+            all_tokens,
         ).fetchall()
         leaver_set = {r["employee_token"] for r in lv}
-        leaver_fr = [latest[t]["flight_risk"] for t in leaver_set if t in latest]
-        stayer_fr = [latest[t]["flight_risk"] for t in tokens if t not in leaver_set and t in latest]
+        latest_all = _latest_scores(conn, all_tokens)
+        leaver_fr = [latest_all[t]["flight_risk"] for t in leaver_set if t in latest_all]
+        stayer_fr = [latest_all[t]["flight_risk"] for t in all_tokens
+                     if t not in leaver_set and t in latest_all]
         risk_vs_attrition = {
             "leaver_mean_flight_risk": round(sum(leaver_fr) / len(leaver_fr), 2) if leaver_fr else None,
             "stayer_mean_flight_risk": round(sum(stayer_fr) / len(stayer_fr), 2) if stayer_fr else None,
         }
 
-    _audit(conn, actor, "drivers", scope, len(tokens))
+    _audit(conn, actor, "drivers", scope, len(all_tokens))
     return {"top_drivers": top_drivers, "distribution": distribution,
             "risk_vs_attrition": risk_vs_attrition, "data_status": "ok", "scope": scope}
 

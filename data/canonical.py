@@ -28,6 +28,10 @@ DIVISIONS = ("front office", "technology", "risk & compliance", "operations", "c
 EMPLOYMENT_TYPES = ("full_time", "part_time", "contractor")
 BUSINESS_TRAVEL_FREQUENCIES = ("none", "occasional", "frequent")
 EMPLOYEE_STATUSES = ("active", "on_leave", "terminated")
+# Statuses meaning the person no longer works here. Current-state views (Watchlist,
+# Dashboard, people lists, survey audiences, cost/forecast analytics) exclude them;
+# historical views (turnover, attrition labels) keep them.
+FORMER_STATUSES = frozenset({"terminated"})
 
 EDUCATION_LEVELS = ("high_school", "associate", "bachelor", "master", "doctorate")
 EDUCATION_FIELDS = (
@@ -83,6 +87,16 @@ FORBIDDEN_COLUMN_SUBSTRINGS = (
     "screenshot", "screen_capture", "webcam", "biometric", "fingerprint",
     "ssn", "social_security", "national_id", "bank_account",
 )
+
+
+def current_employee_sql(alias: str) -> str:
+    """SQL predicate that keeps only current employees, for an `employee_core` alias.
+
+    A token with no canonical row (status NULL) counts as current. `alias` must be a
+    code literal (e.g. "ec"), never caller input. The status list is a fixed constant.
+    """
+    former = ", ".join(f"'{s}'" for s in sorted(FORMER_STATUSES))
+    return f"COALESCE({alias}.status, 'active') NOT IN ({former})"
 
 
 def validate_enum(field: str, value) -> None:
