@@ -16,7 +16,7 @@ layers, the seams they ride, the autonomy ladder, and the hard constraints.
 | **2 · Intelligence Engine** | `model_service/` | the scoring seam (`POST /score`) — same request/response *shape* | a full panel of **8 scores + capital metrics**, all transparent heuristics with reason codes and modeled-estimate caveats |
 | **3 · Agent Layer** | `agents/` (`:8002`) | calls the query seam + scoring service **as tools** — no DB access | 5 agents (Conversational + Retention / Career / Learning / Workforce-Planning) at **L1–L3 only** |
 | **4 · Engagement** | `data/` (notifications) | rides the audited data API | in-app, **opt-in**, channel-abstracted notifications with a transparency `why` on every item |
-| **UI** | `app/` (`:5173`) | talks **only** to `data:8000` (+ `agents:8002` read) | Dashboard, Watchlist, Profile, Company Graph, Surveys (stub), Agents, Inbox; finance-grade design language, light/dark. Fields the API does not yet expose render explicit *"not yet available"* states rather than being faked or hidden. |
+| **UI** | `app/` (`:5173`) | talks **only** to `data:8000` (+ `agents:8002` read) | Dashboard, Analytics, Watchlist, Profile, Company Graph, Surveys, Agents, Inbox, Data Management; finance-grade design language, light/dark. Fields the API does not yet expose render explicit *"not yet available"* states rather than being faked or hidden. |
 
 ## Data flow (one direction, through the seams)
 

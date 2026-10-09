@@ -350,11 +350,11 @@ export function Profile({ token }: { token?: string }) {
 
           <div className="card">
             <div className="card-head">
-              <div className="card-title2">Surveys &amp; Responses<span className="ann">0 completed</span></div>
+              <div className="card-title2">Surveys &amp; Responses<span className="ann">confidential</span></div>
             </div>
             <div className="card-body">
               <div className="nodata">
-                <Icon name="survey" /> <span>Per-employee survey responses are <b>not yet available</b> (survey backend deferred).</span>
+                <Icon name="survey" /> <span>Survey responses are <b>confidential</b> — reported only in aggregate, above each campaign's minimum group size, on the <a href="#/surveys">Surveys</a> screen. They are never shown per person.</span>
               </div>
             </div>
           </div>

@@ -52,20 +52,22 @@ Every screen is token-only and resolves names at the single `NameTag` boundary.
 | Screen | Source | Notes |
 | ------ | ------ | ----- |
 | **Dashboard** | `pages/Dashboard.tsx` | KPI row, Risk × Value action matrix, risk-by-division bars, retention priorities. |
+| **Analytics** | `pages/Analytics.tsx` | Turnover, risk drivers, compensation, engagement, managers, fairness/bias audit, cost scenarios, forecast — all from the scoped `/analytics/*` endpoints with server-side small-segment suppression. |
 | **Watchlist** | `pages/Watchlist.tsx` | Segmented band filter w/ live counts, mini-bar risk, Δ QoQ from real `risk_trend`, value tier, reason-code chips. Client-side filter/sort over one in-scope fetch. |
 | **Profile** | `pages/Profile.tsx` | Radial gauge, reason-code-weighted factor bars, `/360` trend chart, real mini-stats, capital metrics, skills. |
-| **Company Graph** | `pages/Graph.tsx` | Reporting hierarchy from `manager_token` + division/location/risk filters + keyword search, all **client-side** (no NL backend). |
-| **Surveys** | `pages/Surveys.tsx` | **UI shell on a local stub fixture** — no survey backend, no API calls; actions disabled and labelled. |
+| **Company Graph** | `pages/Graph.tsx` | Reporting hierarchy from `manager_token` + division/location/risk filters (client-side), plus an *Ask the graph* panel that runs natural-language people search through the agents service (`/agents/search/people`). |
+| **Surveys** | `pages/Surveys.tsx` | Live over the `/surveys/*` endpoints: build from the question library/templates, launch, collect confidential responses, read aggregate results (suppressed below each campaign's minimum group size). |
+| **Data Management** | `pages/DataManagement.tsx` | Operator console. **Document Import** is a real, admin-only write path (CV/contract/offer/payslip/review → parsed → new employee). The other actions (field edits, connectors, re-ingestion, uploads) are UI-only mocks badged *"demo — not persisted"*. |
 | **Agents / Inbox / Login** | `pages/*.tsx` | App-native screens (agent runs + L3 approve, opt-in notifications, dev login). |
 
 **Data-gap empty states (backend punch-list).** Where the design shows a field the API
 does not yet expose — percentile, model confidence, trend event annotations, full role
-history, documents, per-employee survey responses, language/cert graph filters — the UI
+history, per-employee documents, language/cert graph filters — the UI
 renders an explicit *"not yet available"* state rather than faking or hiding it.
 
 ## Quick start
 
-Requires Python 3.11+ and Node 20+.
+Requires Python 3.11–3.13 and Node 20+.
 
 ```bash
 # 0. install Python deps + an ephemeral encryption key for local dev
