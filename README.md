@@ -47,6 +47,10 @@ app/ (React/TS, :5173)
 ## UI screens
 
 Finance-grade design language (OKLCH tokens, hand-rolled inline-SVG charts, light/dark).
+Type follows a Caslon + Swiss 721 pairing: Caslon for titles and figures, a Helvetica-style
+sans for UI chrome, IBM Plex Mono for codes. The licensed faces are used when installed or
+self-hosted; otherwise Libre Caslon Text (Google Fonts) and the system Helvetica/Arial stand in
+(`--serif` / `--sans` in `design-system.css`).
 Every screen is token-only and resolves names at the single `NameTag` boundary.
 
 | Screen | Source | Notes |
