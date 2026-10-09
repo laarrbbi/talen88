@@ -1,0 +1,104 @@
+/* ============================================================
+   Talent88 app — overrides + app-only components.
+
+   The design system (tokens + design component classes) lives in
+   design-system.css, imported first in main.tsx. This file:
+     1. sets the default accent (teal — the design's default render)
+        and compatibility aliases for legacy token names,
+     2. styles the app-only / not-in-design surfaces (Login, Agents,
+        Inbox, Flash, NameTag fallback, reason rows) in the same
+        design language, riding the same tokens.
+   ============================================================ */
+
+/* ---------- accent default (orange) + legacy token aliases ---------- */
+:root {
+  --accent-h: 52;
+  --accent-c: 0.15;
+
+  /* aliases so any remaining legacy class resolves to the design scale */
+  --text-dim: var(--text-3);
+  --accent-soft: var(--accent-weak);
+  --radius: var(--r-lg);
+}
+
+/* ---------- generic (unclassed) controls in the design language ----
+   Scoped with :not([class]) so design-shell controls (.btn, .icon-btn,
+   .seg button, .search input, …) are never affected. */
+button:not([class]) {
+  font: inherit; cursor: pointer;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  border-radius: var(--r-md); padding: 7px 13px; font-weight: 500;
+  transition: background 0.12s, border-color 0.12s;
+}
+button:not([class]):hover { background: var(--surface-3); border-color: var(--border-2); }
+button:not([class]):disabled { opacity: 0.5; cursor: default; }
+button.primary {
+  font: inherit; cursor: pointer;
+  background: var(--accent); color: var(--accent-fg); border: 1px solid transparent;
+  border-radius: var(--r-md); padding: 7px 13px; font-weight: 500;
+}
+button.primary:hover { background: var(--accent-hover); }
+button.primary:disabled { opacity: 0.5; cursor: default; }
+
+input:not([class]), select:not([class]), textarea:not([class]) {
+  font: inherit; background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--r-md); padding: 7px 10px;
+}
+input:not([class]):focus, select:not([class]):focus, textarea:not([class]):focus {
+  outline: none; border-color: var(--accent);
+}
+
+a:not([class]) { color: var(--accent); text-decoration: none; }
+a:not([class]):hover { text-decoration: underline; }
+
+.muted { color: var(--text-3); }
+.subtle-text { color: var(--text-3); }
+
+/* ---------- flash / inline messages ---------- */
+.flash { padding: 10px 14px; border-radius: var(--r-md); margin-bottom: 14px; font-size: 13px; }
+.flash.err { background: var(--risk-high-bg); color: var(--risk-high); }
+.flash.ok { background: var(--risk-low-bg); color: var(--risk-low); }
+
+/* ---------- generic layout helpers used by app-only screens ---------- */
+.row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.between { justify-content: space-between; }
+.stack-app { display: flex; flex-direction: column; gap: var(--gap); }
+
+/* ---------- reason rows (Profile drivers, agent rationale) ---------- */
+.reason { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px dashed var(--border); font-size: 13px; }
+.reason:last-child { border-bottom: none; }
+.reason .dir-inc { color: var(--risk-high); }
+.reason .dir-dec { color: var(--risk-low); }
+
+/* ---------- score bars (Profile intelligence panel) ---------- */
+.app-bar { height: 8px; background: var(--inset); border-radius: 6px; overflow: hidden; }
+.app-bar > span { display: block; height: 100%; border-radius: 6px; }
+
+.caveat { font-size: 11px; color: var(--risk-med); font-style: italic; }
+
+/* ---------- "data not yet available" empty state (backend punch-list) ---------- */
+.nodata {
+  display: flex; align-items: center; gap: 8px;
+  padding: 11px 13px; border: 1px dashed var(--border-2); border-radius: var(--r-md);
+  background: var(--inset); color: var(--text-3); font-size: 12px;
+}
+.nodata svg { width: 14px; height: 14px; flex-shrink: 0; color: var(--text-4); }
+.nodata b { color: var(--text-2); font-weight: 600; }
+
+/* ---------- Login (app-only) ---------- */
+.login-wrap { display: grid; place-items: center; min-height: 100vh; padding: 20px; background: var(--bg); }
+.login-card { width: 380px; }
+.login-card .opt { width: 100%; justify-content: flex-start; text-align: left; margin-top: 8px; font-weight: 500; }
+.login-brand { display: flex; align-items: center; gap: 11px; margin-bottom: 18px; }
+.login-brand .brand-name { font-family: var(--serif); font-weight: 600; font-size: 22px; }
+.login-brand .brand-name b { color: var(--accent); }
+
+/* ---------- Agents (app-only) ---------- */
+.reco { border-left: 3px solid var(--accent); padding-left: 14px; margin-bottom: 14px; }
+
+/* ---------- Inbox (app-only) ---------- */
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.unread { background: var(--accent); }
+
+/* Risk dot used in the Company Graph search-results rail. */
+.org-rdot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
