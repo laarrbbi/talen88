@@ -1,0 +1,15 @@
+# Never bake local data, keys or build output into the image.
+.git
+.venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+data/*.db
+data/*.db-*
+data/.localkey
+data/.demo-password
+.env
+app/node_modules
+app/dist
+**/.DS_Store
+model_service/ml/artifacts

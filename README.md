@@ -125,6 +125,33 @@ pytest data/tests model_service/tests agents/tests llm/tests -q   # backend (Pyt
 cd app && npm run build                                  # frontend strict typecheck + build
 ```
 
+## Deploy (Fly.io)
+
+The `Dockerfile` builds one container: the data API serves the built UI and forwards
+`/agents/*` to the agents service, so everything is one public address on port 8080. On
+start, `deploy/start.sh` creates the demo database only if none exists, applies schema
+migrations to an existing one, and supervisord re-scores everyone once the scoring
+service is up.
+
+One-time setup:
+
+```bash
+fly volumes create talent88_data --size 1 --region iad     # persistent /data for the database
+fly secrets set \
+  PULSESCORE_SECRET="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')" \
+  PULSESCORE_DATA_KEY="$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')" \
+  PULSESCORE_DEMO_PASSWORD="choose-a-long-password"
+fly deploy
+```
+
+`fly.toml` sets `PULSESCORE_ENV=production`, so the app refuses to start without a strong
+`PULSESCORE_SECRET` and a `PULSESCORE_DATA_KEY`. Keep the data key safe: the employee
+names in the database cannot be read without it. If you skip `PULSESCORE_DEMO_PASSWORD`,
+a random demo password is generated on first boot and saved to `/data/.demo-password`
+(read it with `fly ssh console -C "cat /data/.demo-password"`). To add real operators, open
+`fly ssh console` and run `python -m data.users add you@company.com --name "Your Name" --role admin`
+(it prompts for the password).
+
 ## The two seams (contracts)
 
 1. **Scoring seam** — `model_service` `POST /score`: feature rows (token-keyed) in;

@@ -15,7 +15,9 @@ server.
 """
 from __future__ import annotations
 
+import argparse
 import os
+import time
 from typing import Callable
 
 import httpx
@@ -149,7 +151,27 @@ def refresh_scores(conn, *, score_batch: ScoreBatch | None = None) -> int:
     return len(score_buffer)
 
 
-def main() -> None:
+def wait_for_model(url: str = DEFAULT_MODEL_URL, timeout: float = 60.0) -> None:
+    """Block until the scoring service answers /health, or raise TimeoutError."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            if httpx.get(f"{url}/health", timeout=2.0).status_code == 200:
+                return
+        except httpx.HTTPError:
+            pass
+        if time.monotonic() >= deadline:
+            raise TimeoutError(f"scoring service at {url} not ready after {timeout:.0f}s")
+        time.sleep(1.0)
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(prog="python -m data.refresh")
+    parser.add_argument("--wait", type=float, default=0.0, metavar="SECONDS",
+                        help="wait up to SECONDS for the scoring service to come up first")
+    args = parser.parse_args(argv)
+    if args.wait > 0:
+        wait_for_model(timeout=args.wait)
     conn = get_connection()
     try:
         n = refresh_scores(conn)

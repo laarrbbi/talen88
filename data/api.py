@@ -814,13 +814,27 @@ _AGENTS_INTERNAL = os.environ.get("AGENTS_INTERNAL_URL", "http://127.0.0.1:8002"
 _STATIC_DIR = pathlib.Path(__file__).resolve().parent.parent / "app" / "dist"
 
 
-@app.api_route("/agents/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"])
+_PROXY_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
+
+
+@app.api_route("/agents", methods=_PROXY_METHODS)
+async def _proxy_agents_root(request: Request) -> Response:
+    """`GET /agents` (the agent list) — without this the SPA mount would answer 404."""
+    return await _forward_to_agents("", request)
+
+
+@app.api_route("/agents/{path:path}", methods=_PROXY_METHODS)
 async def _proxy_agents_svc(path: str, request: Request) -> Response:
     """Transparent proxy to the internal agents service — single public origin."""
+    return await _forward_to_agents(path, request)
+
+
+async def _forward_to_agents(path: str, request: Request) -> Response:
+    target = f"{_AGENTS_INTERNAL}/agents" + (f"/{path}" if path else "")
     async with httpx.AsyncClient(timeout=60.0) as client:
         resp = await client.request(
             method=request.method,
-            url=f"{_AGENTS_INTERNAL}/agents/{path}",
+            url=target,
             headers={k: v for k, v in request.headers.items() if k.lower() != "host"},
             content=await request.body(),
             params=dict(request.query_params),

@@ -16,7 +16,7 @@ WORKDIR /app
 
 # Python dependencies (shared across all three services)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt aiofiles
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Application source
 COPY data/ data/

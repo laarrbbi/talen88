@@ -16,11 +16,20 @@ primary_region = "iad"
     soft_limit = 50
     hard_limit = 100
 
+# Persistent storage for the database. Create once with:
+#   fly volumes create talent88_data --size 1 --region iad
+[mounts]
+  source = "talent88_data"
+  destination = "/data"
+
 [[vm]]
   memory = "1gb"
   cpu_kind = "shared"
   cpus = 1
 
+# Secrets are NOT set here. Set them with `fly secrets set` (see README: Deploy):
+#   PULSESCORE_SECRET, PULSESCORE_DATA_KEY, and optionally PULSESCORE_DEMO_PASSWORD.
 [env]
-  PULSESCORE_SECRET = "change-me-set-via-fly-secrets"
+  PULSESCORE_ENV = "production"
+  PULSESCORE_DB = "/data/pulsescore.db"
   TALENT88_LLM_ALLOW_EXTERNAL = "false"
