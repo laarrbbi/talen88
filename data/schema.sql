@@ -153,14 +153,16 @@ CREATE TABLE notification_prefs (
     PRIMARY KEY (email, kind)
 );
 
--- Login operators. (Auth/login hardening is out of MVP scope.) An operator may be
--- linked to their own employee token for division scoping.
+-- Login operators. An operator may be linked to their own employee token for division
+-- scoping. Passwords are stored only as salted scrypt hashes (see data/auth.py); an
+-- operator with no hash cannot sign in.
 CREATE TABLE users (
     email          TEXT PRIMARY KEY,
     name           TEXT NOT NULL,
     role           TEXT NOT NULL CHECK (role IN ('admin', 'manager')),
     division       TEXT,                                  -- NULL for admin
-    employee_token TEXT REFERENCES employees(token)
+    employee_token TEXT REFERENCES employees(token),
+    password_hash  TEXT
 );
 
 -- Tamper-evident, append-only audit trail. Each row is hash-chained to the prior

@@ -11,8 +11,9 @@ data/*.db-journal
 data/*.db-wal
 data/*.db-shm
 
-# Developer-only encryption key (never commit; see data/security/crypto.py)
+# Developer-only encryption key and demo sign-in password (never commit)
 data/.localkey
+data/.demo-password
 .env
 
 # Frontend

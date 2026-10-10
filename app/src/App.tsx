@@ -9,7 +9,7 @@ function SplashScreen() {
     </div>
   );
 }
-import { api, getToken, setToken, Me } from "./api/client";
+import { api, getToken, setToken, Me, UNAUTHORIZED_EVENT } from "./api/client";
 import { Login } from "./pages/Login";
 import { Dashboard } from "./pages/Dashboard";
 import { Analytics } from "./pages/Analytics";
@@ -89,6 +89,13 @@ export function App() {
       api.me().then(setMe).catch(() => setToken(null)),
       minSplash,
     ]).finally(() => setBooting(false));
+  }, []);
+
+  // A rejected (e.g. expired) token anywhere in the app returns to the sign-in screen.
+  useEffect(() => {
+    const onUnauthorized = () => setMe(null);
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
   }, []);
 
   // Unread badge on the bell — reflects the same opt-in Inbox feed.

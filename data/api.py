@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import os
 import pathlib
+from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
@@ -29,12 +30,30 @@ from pydantic import BaseModel, Field
 
 from . import analytics, auth, cv_parse, identity, manual_ingest, notifications, query, surveys
 from .audit import write_audit
-from .db import get_connection
+from .db import db_path, get_connection, migrate
 from .security.crypto import KeyError_
 
 logger = logging.getLogger("pulsescore.api")
 
-app = FastAPI(title="PulseScore Data API", version="0.2.0")
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """Startup: apply additive schema migrations to an existing database (no-op when
+    current), so a persistent production database picks up new columns."""
+    if db_path().exists():
+        conn = get_connection()
+        try:
+            migrate(conn)
+        finally:
+            conn.close()
+    yield
+
+
+app = FastAPI(title="PulseScore Data API", version="0.2.0", lifespan=_lifespan)
+
+# Failed-login throttle (per email, in-process).
+_login_throttle = auth.LoginThrottle()
 
 # Local dev only: the Vite app runs on :5173. Assume TLS termination in front in prod.
 app.add_middleware(
@@ -71,6 +90,7 @@ async def _unhandled(_req: Request, exc: Exception):
 # ----- models ----------------------------------------------------------------
 class LoginRequest(BaseModel):
     email: str = Field(min_length=3, max_length=254)
+    password: str = Field(min_length=1, max_length=256)
 
 
 class ResolveRequest(BaseModel):
@@ -182,15 +202,26 @@ def get_actor(authorization: str = Header(default="")) -> auth.Actor:
 # ----- endpoints -------------------------------------------------------------
 @app.post("/auth/login")
 def login(req: LoginRequest) -> dict[str, Any]:
+    if _login_throttle.is_locked(req.email):
+        raise HTTPException(status_code=429,
+                            detail="too many failed attempts; try again in 15 minutes")
     conn = get_connection()
     try:
-        actor = auth.authenticate(conn, req.email)
+        actor = auth.authenticate(conn, req.email, req.password)
+        write_audit(conn, actor_email=actor.email, action="login",
+                    filters={"ok": True}, result_count=1)
     except auth.AuthError:
+        _login_throttle.record_failure(req.email)
+        # Record the attempt without the password or a hint about which part was wrong.
+        write_audit(conn, actor_email=req.email.strip().lower()[:254], action="login",
+                    filters={"ok": False}, result_count=0)
         raise HTTPException(status_code=401, detail="authentication failed")
     finally:
         conn.close()
+    _login_throttle.reset(req.email)
     return {"token": auth.issue_token(actor), "email": actor.email, "name": actor.name,
-            "role": actor.role, "division": actor.division}
+            "role": actor.role, "division": actor.division,
+            "expires_in": auth.TOKEN_TTL_SECONDS}
 
 
 @app.get("/me")

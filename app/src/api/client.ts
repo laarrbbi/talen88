@@ -24,6 +24,10 @@ export function setToken(t: string | null): void {
   else localStorage.removeItem(TOKEN_KEY);
 }
 
+// Fired when the server rejects our token (expired or revoked), so the app can return
+// to the sign-in screen instead of rendering failed requests.
+export const UNAUTHORIZED_EVENT = "talent88:unauthorized";
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -36,6 +40,10 @@ async function request<T>(base: string, path: string, init: RequestInit = {}): P
   if (init.body) headers["Content-Type"] = "application/json";
   if (token) headers["Authorization"] = `Bearer ${token}`;
   const res = await fetch(`${base}${path}`, { ...init, headers });
+  if (res.status === 401 && token) {
+    setToken(null);
+    window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+  }
   if (!res.ok) {
     let detail = res.statusText;
     try {
@@ -59,6 +67,10 @@ async function uploadData<T>(path: string, form: FormData): Promise<T> {
   const headers: Record<string, string> = {};
   if (token) headers["Authorization"] = `Bearer ${token}`;
   const res = await fetch(`${DATA_URL}${path}`, { method: "POST", body: form, headers });
+  if (res.status === 401 && token) {
+    setToken(null);
+    window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+  }
   if (!res.ok) {
     let detail = res.statusText;
     try { detail = (await res.json()).detail ?? detail; } catch { /* non-JSON */ }
@@ -69,7 +81,7 @@ async function uploadData<T>(path: string, form: FormData): Promise<T> {
 
 // ---- types (mirror the data/agent contracts) -------------------------------
 export interface Me { email: string; name: string; role: string; division: string | null; }
-export interface LoginResult extends Me { token: string; }
+export interface LoginResult extends Me { token: string; expires_in: number; }
 
 export interface Score { as_of_date: string; flight_risk: number; value_score: number; risk_trend: number; }
 export interface ReasonCode { label: string; direction: "increases" | "decreases"; weight: number; }
@@ -332,8 +344,8 @@ export interface CreatedEmployee {
 
 // ---- data API --------------------------------------------------------------
 export const api = {
-  login: (email: string) =>
-    data<LoginResult>("/auth/login", { method: "POST", body: JSON.stringify({ email }) }),
+  login: (email: string, password: string) =>
+    data<LoginResult>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   me: () => data<Me>("/me"),
   divisions: () => data<{ id: number; name: string }[]>("/divisions"),
   employees: (params: Record<string, string | number | undefined> = {}) => {

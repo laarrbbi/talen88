@@ -62,7 +62,7 @@ Every screen is token-only and resolves names at the single `NameTag` boundary.
 | **Company Graph** | `pages/Graph.tsx` | Reporting hierarchy from `manager_token` + division/location/risk filters (client-side), plus an *Ask the graph* panel that runs natural-language people search through the agents service (`/agents/search/people`). |
 | **Surveys** | `pages/Surveys.tsx` | Live over the `/surveys/*` endpoints: build from the question library/templates, launch, collect confidential responses, read aggregate results (suppressed below each campaign's minimum group size). |
 | **Data Management** | `pages/DataManagement.tsx` | Operator console. **Document Import** is a real, admin-only write path (CV/contract/offer/payslip/review → parsed → new employee). The other actions (field edits, connectors, re-ingestion, uploads) are UI-only mocks badged *"demo — not persisted"*. |
-| **Agents / Inbox / Login** | `pages/*.tsx` | App-native screens (agent runs + L3 approve, opt-in notifications, dev login). |
+| **Agents / Inbox / Login** | `pages/*.tsx` | App-native screens (agent runs + L3 approve, opt-in notifications, email + password sign-in). |
 
 **Data-gap empty states (backend punch-list).** Where the design shows a field the API
 does not yet expose — percentile, model confidence, trend event annotations, full role
@@ -114,6 +114,9 @@ and never used as a silent fallback. Details in [SECURITY.md](SECURITY.md) §5e.
 
 Open <http://localhost:5173>. Sign in as `admin@pulsescore.local` (all divisions) or a
 division manager such as `technology.manager@pulsescore.local` (scoped to their division).
+The demo password is printed by `python -m data.generate` and saved to `data/.demo-password`
+(set `PULSESCORE_DEMO_PASSWORD` before generating to choose your own). Manage operators with
+`python -m data.users list | add | set-password`.
 
 ## Tests
 

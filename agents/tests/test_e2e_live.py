@@ -94,6 +94,7 @@ def stack(tmp_path_factory):
     env["PULSESCORE_DB"] = str(db_file)
     env.setdefault("PULSESCORE_DATA_KEY", Fernet.generate_key().decode())
     env.setdefault("PULSESCORE_SECRET", "e2e-only-secret")
+    env.setdefault("PULSESCORE_DEMO_PASSWORD", "e2e-demo-password")
     env["PULSESCORE_MODEL_URL"] = model_url
     env["PULSESCORE_DATA_URL"] = data_url   # the agent layer's tools client reads this
 
@@ -110,7 +111,8 @@ def stack(tmp_path_factory):
         agents_env["TALENT88_LLM_TIMEOUT"] = "1"
 
     # Build + score in-process (the same code paths the CLI uses), against the temp DB.
-    for k in ("PULSESCORE_DB", "PULSESCORE_DATA_KEY", "PULSESCORE_SECRET"):
+    for k in ("PULSESCORE_DB", "PULSESCORE_DATA_KEY", "PULSESCORE_SECRET",
+              "PULSESCORE_DEMO_PASSWORD"):
         os.environ[k] = env[k]
     from data import generate, refresh
     from data.db import get_connection
@@ -150,7 +152,9 @@ def stack(tmp_path_factory):
 
 
 def _login(data_url: str, email: str) -> str:
-    r = httpx.post(f"{data_url}/auth/login", json={"email": email}, timeout=10.0)
+    r = httpx.post(f"{data_url}/auth/login",
+                   json={"email": email, "password": os.environ["PULSESCORE_DEMO_PASSWORD"]},
+                   timeout=10.0)
     r.raise_for_status()
     return r.json()["token"]
 

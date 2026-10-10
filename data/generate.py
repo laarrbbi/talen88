@@ -14,10 +14,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
+import secrets
 from datetime import date
 
-from . import canonical
+from . import auth, canonical
 from .db import db_path, get_connection, init_db
 from .survey_demo import seed_demo_survey_activity
 from .survey_library import seed_survey_library
@@ -316,6 +318,7 @@ def build(seed: int = 7) -> None:
             (f"{slug}.manager@pulsescore.local", head["full_name"], "manager",
              division, head["token"]),
         )
+    _, password_note = _seed_operator_passwords(conn)
 
     # Survey module: seed the science-backed question library + templates (additive;
     # campaigns/responses are created at runtime). This is the reference content that
@@ -333,7 +336,30 @@ def build(seed: int = 7) -> None:
     print(f"Seeded survey library: {lib['drivers']} drivers, {lib['items']} items, "
           f"{lib['templates']} templates; {demo['campaigns']} demo campaigns.")
     print(f"Database: {db_path()}  (PII encrypted at rest in `identities`)")
+    print(f"Operator sign-in password: {password_note}")
     print("Next: run the score refresh (model_service) to populate scores + reason codes.")
+
+
+def _seed_operator_passwords(conn) -> tuple[str, str]:
+    """Give every seeded operator the same demo password.
+
+    Uses PULSESCORE_DEMO_PASSWORD when set; otherwise mints a random one and writes it to
+    a gitignored `.demo-password` file next to the database, so a local developer can
+    find it and a deployment never ships a password that is public in the repo.
+    Returns (password, a note saying where it came from).
+    """
+    password = os.environ.get("PULSESCORE_DEMO_PASSWORD")
+    if password:
+        note = "from PULSESCORE_DEMO_PASSWORD"
+    else:
+        password = secrets.token_urlsafe(12)
+        path = db_path().with_name(".demo-password")
+        path.write_text(password + "\n")
+        os.chmod(path, 0o600)
+        note = f"generated, saved to {path}"
+    hashed = auth.hash_password(password)
+    conn.execute("UPDATE users SET password_hash = ?", (hashed,))
+    return password, note
 
 
 def _birth_year_band(year: int) -> str:

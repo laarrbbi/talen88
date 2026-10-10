@@ -75,6 +75,25 @@ def get_connection(path: str | os.PathLike | None = None) -> sqlite3.Connection:
     return conn
 
 
+# Additive column migrations for databases created by an older schema (e.g. a persistent
+# production volume). Each entry is (table, column, DDL type); applied idempotently.
+_ADDED_COLUMNS = (
+    ("users", "password_hash", "TEXT"),
+)
+
+
+def migrate(conn: sqlite3.Connection) -> None:
+    """Bring an existing database up to the current schema without dropping data."""
+    tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    for table, column, ddl in _ADDED_COLUMNS:
+        if table not in tables:
+            continue
+        cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+    conn.commit()
+
+
 def init_db(conn: sqlite3.Connection) -> None:
     """Create all tables from schema.sql (idempotent reset: drops first)."""
     existing = {

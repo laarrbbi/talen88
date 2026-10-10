@@ -6,8 +6,8 @@ the seams are, and what a production financial-grade deployment still needs. It 
 all four layers — unified data, the intelligence engine, the agent layer, and the
 engagement layer.
 
-> Scope note: authentication/login hardening is intentionally out of scope for this
-> MVP (dev login). Everything else below is in scope and implemented.
+> Scope note: sign-in uses email + password (§4a). Enterprise SSO/MFA is the remaining
+> production step (§6). Everything else below is in scope and implemented.
 
 ## 1. Pseudonymization (tokenized by construction)
 
@@ -91,6 +91,27 @@ the calling user**, forwarding that user's bearer token, so it inherits the exac
 permission scope and audit trail the UI has. A manager running an agent cannot see
 beyond their division — verified by test and end-to-end. There is no other door into
 the data.
+
+## 4a. Authentication
+
+- **Passwords** are stored only as salted scrypt hashes (`data/auth.py`, stdlib
+  `hashlib.scrypt`, minimum 10 characters). An operator with no hash cannot sign in.
+  Operators are managed with `python -m data.users` (add / set-password / list).
+- **Generic failures:** an unknown email, a missing hash and a wrong password all return
+  the same `401 authentication failed`, and an unknown email is checked against a dummy
+  hash so response time does not reveal whether an account exists.
+- **Throttling:** 5 failed attempts for one email within 15 minutes locks that email out
+  for the rest of the window (`429`). Every attempt, good or bad, writes an audit row
+  (never the password).
+- **Expiring tokens:** tokens are HMAC-SHA256 signed and carry `iat`/`exp`; the default
+  lifetime is 8 hours (`PULSESCORE_TOKEN_TTL_MINUTES`). Expired or unsigned tokens are
+  rejected, and the UI returns to the sign-in screen on any `401`.
+- **Production secret rule:** with `PULSESCORE_ENV=production` the data API refuses to
+  start unless `PULSESCORE_SECRET` is a random value of at least 32 characters that is
+  not one of the placeholders in this repo.
+- **Demo operators:** the generator gives the seeded operators one password, from
+  `PULSESCORE_DEMO_PASSWORD` or else randomly generated and saved to the gitignored
+  `data/.demo-password`. The sign-in screen lists them only in local development builds.
 
 ## 5. Tamper-evident, comprehensive audit log
 
@@ -222,8 +243,9 @@ and reviewed; and note that the no-PII guard is defense-in-depth, not a license 
 
 This MVP establishes the architecture; a regulated deployment additionally needs:
 
-- **Authentication/SSO:** replace dev login with enterprise SSO/OIDC + MFA behind
-  the existing `auth.authenticate()` seam; short-lived, rotated tokens.
+- **Authentication/SSO:** add enterprise SSO/OIDC + MFA behind the existing
+  `auth.authenticate()` seam (password sign-in and expiring tokens are in place, §4a);
+  token revocation and refresh.
 - **In-tenant deployment:** run inside the customer's VPC/tenant; data never leaves
   their boundary.
 - **Customer-managed keys (BYOK):** wire `crypto.load_key()` to the customer KMS/HSM;
