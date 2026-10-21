@@ -1,0 +1,62 @@
+{
+  "version": "talent88-v2.0",
+  "notes": "Starting weights for scoring v2. Family weights follow the turnover research (satisfaction and commitment, job search, manager and team, pay); factor weights split each family. Change only with review: every score row records this version.",
+
+  "flight_risk": {
+    "spread": 4.0,
+    "default_base_rate": 0.12,
+    "min_rows_for_calibration": 20,
+    "index_anchors": [[0.0, 0], [0.05, 20], [0.15, 40], [0.35, 70], [0.60, 90], [1.0, 100]],
+    "families": {
+      "engagement": {"weight": 0.20, "factors": {
+        "engagement_trend": 0.25, "engagement_score": 0.15, "enps_score": 0.12,
+        "job_satisfaction": 0.12, "work_life_balance": 0.10, "survey_sentiment": 0.10,
+        "recognition_count": 0.08, "manager_effectiveness_score": 0.08}},
+      "career": {"weight": 0.20, "factors": {
+        "months_since_promotion": 0.35, "promotion_velocity": 0.20,
+        "years_in_current_role": 0.15, "internal_applications_12mo": 0.30}},
+      "pay": {"weight": 0.18, "factors": {
+        "comp_gap": 0.30, "comp_gap_vs_market": 0.25, "pay_percentile_in_role": 0.20,
+        "months_since_raise": 0.15, "last_raise_pct": 0.10}},
+      "manager_team": {"weight": 0.14, "factors": {
+        "manager_changes_12mo": 0.30, "team_turnover_rate": 0.25,
+        "peers_departed_recently": 0.25, "manager_rating": 0.20}},
+      "market": {"weight": 0.10, "factors": {
+        "skill_market_demand": 0.30, "industry_hiring_heat": 0.20, "skill_uniqueness": 0.20,
+        "regional_comp_movement": 0.10, "performance_standing": 0.20}},
+      "ties_timing": {"weight": 0.10, "factors": {
+        "tenure_cliff": 0.35, "unvested_equity_usd": 0.25,
+        "median_prior_tenure": 0.20, "job_hopping_rate": 0.20}},
+      "workload": {"weight": 0.08, "factors": {
+        "pto_used": 0.30, "overtime": 0.30, "commute_km": 0.20, "after_hours_activity": 0.20}}
+    },
+    "shocks": {
+      "recent_manager_change": {"logit": 0.30, "window_months": 6},
+      "recent_vest": {"logit": 0.25, "window_months": 3},
+      "recent_internal_application": {"logit": 0.35, "window_months": 3}
+    }
+  },
+
+  "value": {
+    "performance": {"weight": 0.25, "factors": {"perf_rating": 0.7, "performance_trend": 0.3}},
+    "results": {"weight": 0.20, "factors": {"goal_attainment": 0.5, "division_output": 0.5}},
+    "skill_scarcity": {"weight": 0.20, "factors": {"skill_uniqueness": 0.4, "skill_market_demand": 0.3, "skill_avg_prof": 0.3}},
+    "scope": {"weight": 0.15, "factors": {"level": 0.6, "span_of_control": 0.4}},
+    "network": {"weight": 0.10, "factors": {"bridge_score": 0.5, "betweenness": 0.5}},
+    "institutional_knowledge": {"weight": 0.10, "factors": {"tenure_years": 1.0}}
+  },
+
+  "division_output_signals": {
+    "pnl_attribution": 1, "production_credit": 1, "book_of_business": 1,
+    "throughput": 1, "cycle_time": -1,
+    "workload_volume": 1, "shift_adherence": 1, "attendance": 1,
+    "workload": 1, "credential_currency": 1,
+    "deliverable_completion": 1
+  },
+
+  "capital": {
+    "retention_invest_fraction": 0.20,
+    "fx_to_usd": {"USD": 1.0, "GBP": 1.27, "EUR": 1.08, "SGD": 0.74, "HKD": 0.128, "JPY": 0.0067},
+    "salary_band_usd": {"1": 70000, "2": 95000, "3": 130000, "4": 180000, "5": 240000, "6": 350000}
+  }
+}

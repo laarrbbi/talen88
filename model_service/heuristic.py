@@ -85,6 +85,12 @@ class ScoreResult:
     # Layer 2 panel (additive; the legacy fields above stay for back-compat).
     metrics: list[dict] = field(default_factory=list)   # 8 scores, each w/ reason codes
     capital: list[dict] = field(default_factory=list)   # capital/moneyball figures
+    # Scoring v2 additions (None from v1): calibrated 12-month chance of leaving (0..1),
+    # percentile among current employees, data confidence (0..100), scorer version.
+    leave_probability: float | None = None
+    risk_percentile: int | None = None
+    confidence: int | None = None
+    scorer_version: str | None = None
 
 
 class HeuristicScorer:

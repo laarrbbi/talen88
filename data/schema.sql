@@ -56,9 +56,13 @@ CREATE TABLE feature_snapshots (
 CREATE TABLE scores (
     employee_token TEXT NOT NULL REFERENCES employees(token),
     as_of_date     TEXT NOT NULL,
-    flight_risk    INTEGER NOT NULL,   -- 0..100
+    flight_risk    INTEGER NOT NULL,   -- 0..100 risk index
     value_score    INTEGER NOT NULL,   -- 0..100
     risk_trend     INTEGER NOT NULL,   -- delta vs prior period
+    leave_probability REAL,            -- scoring v2: calibrated 12-month chance of leaving
+    risk_percentile   INTEGER,         -- scoring v2: rank among current employees (0..100)
+    confidence        INTEGER,         -- scoring v2: how complete the inputs were (0..100)
+    scorer_version    TEXT,            -- which scorer + weights produced this row
     PRIMARY KEY (employee_token, as_of_date)
 );
 
@@ -71,7 +75,8 @@ CREATE TABLE reason_codes (
     metric         TEXT NOT NULL DEFAULT 'retention_risk',
     label          TEXT NOT NULL,
     direction      TEXT NOT NULL CHECK (direction IN ('increases', 'decreases')),
-    weight         REAL NOT NULL      -- 0..1
+    weight         REAL NOT NULL,     -- 0..1
+    detail         TEXT               -- plain-language explanation (scoring v2); never PII
 );
 
 -- The full INTELLIGENCE PANEL (Layer 2), long-format so adding scores never widens a

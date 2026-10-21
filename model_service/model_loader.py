@@ -5,15 +5,16 @@ downstream (the service, the data layer, the UI) depends ONLY on
 `score(rows) -> [ScoreResult]` and the {label, direction, weight} reason-code shape,
 so the active backend is a config choice with no contract impact.
 
-Backend selection (`SCORING_BACKEND`, default "heuristic"):
-  * "heuristic" -> the transparent `HeuristicScorer` (default).
+Backend selection (`SCORING_BACKEND`, default "v2"):
+  * "v2"        -> `V2Scorer` (model_service/v2): peer-relative, multi-factor, calibrated
+                   (default).
+  * "heuristic" -> the original four-driver `HeuristicScorer` ("v1" is an alias).
   * "ml"        -> the trained `MLScorer` (model_service/ml). If its artifact is
                    missing, the optional ML deps are absent, or it raises while
                    loading, we LOG it and FALL BACK to the heuristic — the service
                    must never fail to start (or crash) because of the model.
 
-Any value other than "ml" resolves to the heuristic. This is the only switch; the
-default behavior is byte-for-byte unchanged.
+Any other value resolves to v2.
 """
 from __future__ import annotations
 
@@ -68,11 +69,13 @@ def _load_ml_scorer() -> Scorer:
         return HeuristicScorer()
 
 
-def load_model() -> Scorer:
-    """Return the active scorer per SCORING_BACKEND (read live from the env at load
-    time, default 'heuristic'). Falls back to the heuristic whenever the ML backend
-    cannot be loaded. Any value other than 'ml' resolves to the heuristic."""
-    backend = os.environ.get("SCORING_BACKEND", "heuristic").strip().lower()
+def load_model(backend: str | None = None) -> Scorer:
+    """Return the scorer for `backend`, or per SCORING_BACKEND (read live from the env,
+    default 'v2'). Falls back to the heuristic whenever the ML backend cannot be loaded."""
+    backend = (backend or os.environ.get("SCORING_BACKEND", "v2")).strip().lower()
     if backend == "ml":
         return _load_ml_scorer()
-    return HeuristicScorer()
+    if backend in ("heuristic", "v1"):
+        return HeuristicScorer()
+    from .v2 import V2Scorer
+    return V2Scorer()

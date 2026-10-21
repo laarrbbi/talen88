@@ -62,10 +62,17 @@ def test_score_endpoint_happy_path():
     resp = client.post("/score", json={"as_of_date": "2026-06-01", "rows": [HIGH, LOW]})
     assert resp.status_code == 200
     body = resp.json()
-    assert body["model"] == "heuristic-v1"
+    assert body["model"] == "talent88-v2.0"          # v2 is the default backend
     assert len(body["results"]) == 2
     assert body["results"][0]["employee_token"] == "emp_high"
     assert "reason_codes" in body["results"][0]
+
+
+def test_score_endpoint_can_request_v1():
+    resp = client.post("/score", json={"as_of_date": "2026-06-01", "rows": [HIGH, LOW],
+                                       "scorer": "v1"})
+    assert resp.status_code == 200 and resp.json()["model"] == "heuristic-v1"
+    assert resp.json()["results"][0]["leave_probability"] is None
 
 
 def test_score_endpoint_rejects_bad_input():

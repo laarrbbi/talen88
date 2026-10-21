@@ -79,6 +79,11 @@ def get_connection(path: str | os.PathLike | None = None) -> sqlite3.Connection:
 # production volume). Each entry is (table, column, DDL type); applied idempotently.
 _ADDED_COLUMNS = (
     ("users", "password_hash", "TEXT"),
+    ("scores", "leave_probability", "REAL"),
+    ("scores", "risk_percentile", "INTEGER"),
+    ("scores", "confidence", "INTEGER"),
+    ("scores", "scorer_version", "TEXT"),
+    ("reason_codes", "detail", "TEXT"),
 )
 
 
