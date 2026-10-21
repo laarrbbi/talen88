@@ -124,6 +124,12 @@ and bias-walled fields excluded from diffs by design. The **real delta backend i
 
 ## Layer 2 — the intelligence panel
 
+> **Scoring v2** (default) replaces the fixed-anchor heuristics described below with
+> peer-relative factor ranking across seven families, a calibrated 12-month leave
+> probability (mapped to the same 0–100 index and bands), confidence, percentile, a
+> percentile talent value, and dollars at risk. Same `/score` contract, additive fields.
+> Details, safeguards and validation: [`model_service/v2/README.md`](model_service/v2/README.md).
+
 Eight transparent, weighted-heuristic scores (0–100, each with structured reason
 codes), persisted long-format in `metric_scores` so adding a score never widens a table:
 

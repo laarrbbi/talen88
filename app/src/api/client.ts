@@ -83,8 +83,19 @@ async function uploadData<T>(path: string, form: FormData): Promise<T> {
 export interface Me { email: string; name: string; role: string; division: string | null; }
 export interface LoginResult extends Me { token: string; expires_in: number; }
 
-export interface Score { as_of_date: string; flight_risk: number; value_score: number; risk_trend: number; }
-export interface ReasonCode { label: string; direction: "increases" | "decreases"; weight: number; }
+export interface Score {
+  as_of_date: string; flight_risk: number; value_score: number; risk_trend: number;
+  // Scoring v2 (null on rows produced by v1):
+  leave_probability?: number | null;   // calibrated 12-month chance of leaving, 0..1
+  risk_percentile?: number | null;     // rank among current employees, 0..100
+  confidence?: number | null;          // how complete the inputs were, 0..100
+  scorer_version?: string | null;
+  expected_loss?: number | null;       // dollars at risk (probability x cost to lose), estimate
+}
+export interface ReasonCode {
+  label: string; direction: "increases" | "decreases"; weight: number;
+  detail?: string | null;              // plain-language explanation (v2)
+}
 export interface EmployeeRow {
   token: string; role: string; level: number; division: string; team: string;
   manager_token: string | null; location: string; hire_date: string; employment_type: string;
@@ -118,7 +129,10 @@ export interface Employee360 extends EmployeeRow {
   history: Score[]; panel: PanelMetric[]; capital: CapitalMetric[];
   profile?: ProfileBlock;
 }
-export interface QuadrantPoint { token: string; division: string; flight_risk: number; value_score: number; cost_to_lose: number | null; }
+export interface QuadrantPoint {
+  token: string; division: string; flight_risk: number; value_score: number; cost_to_lose: number | null;
+  leave_probability: number | null; expected_loss: number | null;
+}
 export interface Dashboard {
   headline: { total_scored: number; high_risk_count: number; key_person_count: number; act_now_count: number };
   quadrant: QuadrantPoint[];

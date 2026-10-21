@@ -195,14 +195,18 @@ def _latest_scores(conn: sqlite3.Connection, tokens: list[str]) -> dict[str, dic
         return {}
     ph = _ph(len(tokens))
     rows = conn.execute(
-        f"""SELECT sc.employee_token AS t, sc.flight_risk AS fr, sc.value_score AS vs
+        f"""SELECT sc.employee_token AS t, sc.flight_risk AS fr, sc.value_score AS vs,
+                   sc.leave_probability AS p
             FROM scores sc
             JOIN (SELECT employee_token, MAX(as_of_date) AS m FROM scores
                   WHERE employee_token IN ({ph}) GROUP BY employee_token) ls
               ON ls.employee_token = sc.employee_token AND ls.m = sc.as_of_date""",
         tokens,
     ).fetchall()
-    return {r["t"]: {"flight_risk": r["fr"], "value_score": r["vs"]} for r in rows}
+    return {r["t"]: {"flight_risk": r["fr"], "value_score": r["vs"],
+                     # v2 stores a calibrated probability; older scores fall back to index/100.
+                     "leave_probability": r["p"] if r["p"] is not None else r["fr"] / 100.0}
+            for r in rows}
 
 
 def _scope_dict(eff: str | None, manager: str | None, location: str | None,
@@ -484,7 +488,7 @@ def get_cost(
             fr = latest.get(t, {}).get("flight_risk")
             if cost is None or fr is None:
                 continue
-            at_risk = cost * (fr / 100.0)
+            at_risk = cost * latest[t]["leave_probability"]
             total_at_risk += at_risk
             per_token.append({"token": t, "cost_to_lose": round(cost, 2),
                               "flight_risk": fr, "cost_at_risk": round(at_risk, 2)})
@@ -635,13 +639,13 @@ def get_forecast(
     div_by_token = {r["token"]: r["division"] for r in cohort}
 
     latest = _latest_scores(conn, tokens)
-    expected_leavers = round(sum(s["flight_risk"] / 100.0 for s in latest.values()), 2)
+    expected_leavers = round(sum(s["leave_probability"] for s in latest.values()), 2)
     div_acc: dict[str, dict[str, Any]] = {}
     for t, s in latest.items():
         d = div_acc.setdefault(div_by_token.get(t, "?"),
                                {"segment": div_by_token.get(t, "?"), "headcount": 0, "expected_leavers": 0.0})
         d["headcount"] += 1
-        d["expected_leavers"] += s["flight_risk"] / 100.0
+        d["expected_leavers"] += s["leave_probability"]
     for d in div_acc.values():
         d["expected_leavers"] = round(d["expected_leavers"], 2)
     by_division, _ = _suppress_small(sorted(div_acc.values(), key=lambda x: -x["expected_leavers"]))

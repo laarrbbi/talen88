@@ -33,7 +33,7 @@ _SYSTEM = (
 
 # Thresholds the planner uses when a question implies a band but gives no number.
 _COMP_GAP_MIN = 0.15        # "underpaid" => at least a 15% gap below band
-_VALUE_HIGH = 70            # "key person" / "valuable"
+_VALUE_HIGH = 80            # "key person": top fifth by value (value is a percentile)
 _MOBILITY_READY = 70        # "ready for promotion"
 _PANEL_SCAN_CAP = 60        # max per-employee 360 fetches for panel-based intents
 

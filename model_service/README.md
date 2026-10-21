@@ -1,5 +1,10 @@
 # `model_service/` — scoring seam
 
+> **Default scorer: v2** (`model_service/v2`, version `talent88-v2.0`) — peer-relative,
+> ~40 factors, a calibrated 12-month chance of leaving, confidence, percentile and dollars
+> at risk. See the model card: [`v2/README.md`](v2/README.md). The sections below describe
+> the original v1 heuristic, still available as `SCORING_BACKEND=heuristic`.
+
 Computes the full **8-score intelligence panel + capital ("moneyball") metrics**, plus
 the legacy flight-risk / value scores, all with structured reason codes — behind one
 HTTP endpoint, `POST /score` (:8001). The default backend is a **transparent weighted

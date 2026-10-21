@@ -32,6 +32,9 @@ _BANDS: dict[str, tuple[int, int]] = {
     "low": (0, 40),        # < 40
 }
 
+# A "key person" is in the top fifth of current employees by value (value is a percentile).
+KEY_PERSON_VALUE = 80
+
 # Whitelist mapping sort field -> fully-qualified, trusted column expression.
 _SORT_COLUMNS = {
     "flight_risk": "s.flight_risk",
@@ -39,6 +42,8 @@ _SORT_COLUMNS = {
     "risk_trend": "s.risk_trend",
     "comp_gap": "f.comp_gap",
     "level": "e.level",
+    "expected_loss": "el.amount",
+    "leave_probability": "s.leave_probability",
 }
 _MAX_LIMIT = 1000
 
@@ -122,7 +127,9 @@ def get_employees(
                e.location, e.hire_date, e.employment_type,
                COALESCE(ec.status, 'active') AS status,
                f.comp_gap, f.months_since_promotion, f.tenure_months, f.manager_changes_12mo,
-               s.as_of_date AS score_date, s.flight_risk, s.value_score, s.risk_trend
+               s.as_of_date AS score_date, s.flight_risk, s.value_score, s.risk_trend,
+               s.leave_probability, s.risk_percentile, s.confidence, s.scorer_version,
+               el.amount AS expected_loss
         FROM employees e
         LEFT JOIN employee_core ec ON ec.employee_token = e.token
         LEFT JOIN (
@@ -137,6 +144,9 @@ def get_employees(
                   FROM scores GROUP BY employee_token) ls
               ON ls.employee_token = sc.employee_token AND ls.m = sc.as_of_date
         ) s ON s.employee_token = e.token
+        LEFT JOIN capital_metrics el
+          ON el.employee_token = s.employee_token AND el.as_of_date = s.as_of_date
+         AND el.metric = 'expected_loss'
         {where_sql}
         {order_sql}
         {limit_sql}
@@ -160,11 +170,14 @@ def _build_record(conn: sqlite3.Connection, r: sqlite3.Row) -> dict[str, Any]:
         latest_score = {
             "as_of_date": r["score_date"], "flight_risk": r["flight_risk"],
             "value_score": r["value_score"], "risk_trend": r["risk_trend"],
+            "leave_probability": r["leave_probability"], "risk_percentile": r["risk_percentile"],
+            "confidence": r["confidence"], "scorer_version": r["scorer_version"],
+            "expected_loss": r["expected_loss"],
         }
     reason_codes: list[dict[str, Any]] = []
     if r["score_date"] is not None:
         rc_rows = conn.execute(
-            "SELECT label, direction, weight FROM reason_codes "
+            "SELECT label, direction, weight, detail FROM reason_codes "
             "WHERE employee_token = ? AND as_of_date = ? AND metric = 'retention_risk' "
             "ORDER BY weight DESC",
             (r["token"], r["score_date"]),
@@ -199,7 +212,7 @@ def get_employee_history(
         return {}
 
     history = [dict(h) for h in conn.execute(
-        "SELECT as_of_date, flight_risk, value_score, risk_trend FROM scores "
+        "SELECT as_of_date, flight_risk, value_score, risk_trend, leave_probability FROM scores "
         "WHERE employee_token = ? ORDER BY as_of_date ASC", (token,),
     ).fetchall()]
 
@@ -207,7 +220,7 @@ def get_employee_history(
     reason_codes: list[dict[str, Any]] = []
     if latest_date is not None:
         reason_codes = [dict(rc) for rc in conn.execute(
-            "SELECT label, direction, weight FROM reason_codes "
+            "SELECT label, direction, weight, detail FROM reason_codes "
             "WHERE employee_token = ? AND as_of_date = ? AND metric = 'retention_risk' "
             "ORDER BY weight DESC",
             (token, latest_date),
@@ -292,7 +305,8 @@ def get_employee_360(
     ).fetchall()]
 
     score_row = conn.execute(
-        "SELECT as_of_date, flight_risk, value_score, risk_trend FROM scores "
+        "SELECT as_of_date, flight_risk, value_score, risk_trend, leave_probability, "
+        "risk_percentile, confidence, scorer_version FROM scores "
         "WHERE employee_token = ? ORDER BY as_of_date DESC LIMIT 1", (token,),
     ).fetchone()
     latest_score = dict(score_row) if score_row is not None else None
@@ -300,7 +314,7 @@ def get_employee_360(
 
     # Retention-risk trend (the 6 snapshots) for the profile chart.
     history = [dict(h) for h in conn.execute(
-        "SELECT as_of_date, flight_risk, value_score, risk_trend FROM scores "
+        "SELECT as_of_date, flight_risk, value_score, risk_trend, leave_probability FROM scores "
         "WHERE employee_token = ? ORDER BY as_of_date ASC", (token,),
     ).fetchall()]
 
@@ -311,12 +325,13 @@ def get_employee_360(
     if latest_date is not None:
         rc_by_metric: dict[str, list[dict[str, Any]]] = {}
         for rc in conn.execute(
-            "SELECT metric, label, direction, weight FROM reason_codes "
+            "SELECT metric, label, direction, weight, detail FROM reason_codes "
             "WHERE employee_token = ? AND as_of_date = ? ORDER BY weight DESC",
             (token, latest_date),
         ).fetchall():
             rc_by_metric.setdefault(rc["metric"], []).append(
-                {"label": rc["label"], "direction": rc["direction"], "weight": rc["weight"]})
+                {"label": rc["label"], "direction": rc["direction"], "weight": rc["weight"],
+                 "detail": rc["detail"]})
         reason_codes = rc_by_metric.get("retention_risk", [])
         panel = [{"metric": m["metric"], "score": m["score"],
                   "reason_codes": rc_by_metric.get(m["metric"], [])}
@@ -360,9 +375,9 @@ def get_dashboard_metrics(conn: sqlite3.Connection, *, actor: Actor) -> dict[str
     employees = get_employees(conn, actor=actor)  # audited + scoped
     scored = [e for e in employees if e["latest_score"] is not None]
     high_risk = [e for e in scored if e["latest_score"]["flight_risk"] >= 70]
-    key_person = [e for e in scored if e["latest_score"]["value_score"] >= 70]
+    key_person = [e for e in scored if e["latest_score"]["value_score"] >= KEY_PERSON_VALUE]
     act_now = [e for e in scored if e["latest_score"]["flight_risk"] >= 70
-               and e["latest_score"]["value_score"] >= 70]
+               and e["latest_score"]["value_score"] >= KEY_PERSON_VALUE]
 
     # Cost-to-lose (latest, per token) powers the capital quadrant (risk x cost).
     cost_rows = conn.execute(
@@ -377,6 +392,8 @@ def get_dashboard_metrics(conn: sqlite3.Connection, *, actor: Actor) -> dict[str
     quadrant = [{"token": e["token"], "division": e["division"],
                  "flight_risk": e["latest_score"]["flight_risk"],
                  "value_score": e["latest_score"]["value_score"],
+                 "leave_probability": e["latest_score"]["leave_probability"],
+                 "expected_loss": e["latest_score"]["expected_loss"],
                  "cost_to_lose": cost_by_token.get(e["token"])} for e in scored]
 
     by_division: dict[str, dict[str, int]] = {}

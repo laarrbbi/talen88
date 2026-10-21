@@ -17,8 +17,11 @@ and the agent layer plug in **without rewriting the UI or the data access**.
    spec-complete **canonical schema** (Talent88 v2 FINAL, 16 tables) is an additive
    overlay that **ingestion** writes to, with the bias-audit / identity-proxy **scoring
    wall**, consent gating, and §9 RED exclusions enforced by tests.
-2. **Intelligence Engine** — `model_service/`: 8 transparent scores + capital metrics,
-   each with reason codes and modeled-estimate caveats, behind one `/score` contract.
+2. **Intelligence Engine** — `model_service/`: scoring v2 ranks ~40 factors against peers
+   and returns a calibrated 12-month chance of leaving, a 0–100 risk index, confidence,
+   percentile, talent value, dollars at risk, the 8-score panel and plain-language reasons,
+   behind one `/score` contract ([model card](model_service/v2/README.md);
+   `python -m data.backtest` compares it with v1 and runs the fairness checks).
 3. **Agent Layer** — `agents/` (`:8002`): Conversational (read-only) + Retention /
    Career / Learning / Workforce-Planning, all calling the seams **as tools**, capped at
    **L3 (click-to-approve)**.

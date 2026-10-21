@@ -3,7 +3,7 @@ import { api, Employee360, EmployeeRow, Score } from "../api/client";
 import { NameTag } from "../components/NameTag";
 import { ScoreBar, RiskBadge, Skeleton, SkeletonChartCard } from "../components/ui";
 import { Icon } from "../components/icons";
-import { formatCapital, titleCase, shortDate, monthYear, riskColor } from "../lib/format";
+import { byCapitalOrder, capitalLabel, formatCapital, ordinal, titleCase, shortDate, monthYear, riskColor } from "../lib/format";
 
 function valueTier(v: number | null | undefined): number {
   if (v == null) return 0;
@@ -117,17 +117,30 @@ export function Profile({ token }: { token?: string }) {
                 </div>
               </div>
               <div className="gauge-band"><RiskBadge score={risk} label /></div>
+              {s?.leave_probability != null && (
+                <div className="gauge-prob">
+                  <b>{Math.round(s.leave_probability * 100)}%</b> chance of leaving in the next 12 months
+                </div>
+              )}
             </div>
             <div className="facts">
-              <Fact label="Percentile" value="—" />
+              <Fact label="Percentile" value={s?.risk_percentile != null ? ordinal(s.risk_percentile) : "—"} />
               <Fact label="QoQ change" value={s ? `${s.risk_trend > 0 ? "+" : ""}${Math.round(s.risk_trend)}` : "—"}
                     color={s ? (s.risk_trend > 0 ? "var(--risk-high)" : "var(--risk-low)") : undefined} />
-              <Fact label="Model confidence" value="—" />
+              <Fact label="Data confidence" value={s?.confidence != null ? `${s.confidence} / 100` : "—"}
+                    color={s?.confidence != null ? (s.confidence >= 70 ? "var(--risk-low)" : s.confidence >= 40 ? "var(--risk-med)" : "var(--risk-high)") : undefined} />
               <Fact label="Value tier" value={tier ? `${tier} / 5` : "—"} />
             </div>
-            <div className="nodata" style={{ margin: "12px 14px 14px" }}>
-              <Icon name="alert" /> <span>Percentile &amp; model confidence are <b>not yet exposed</b> by the scoring API.</span>
-            </div>
+            {s?.risk_percentile == null && s?.confidence == null ? (
+              <div className="nodata" style={{ margin: "12px 14px 14px" }}>
+                <Icon name="alert" /> <span>Percentile &amp; data confidence need the current scorer — re-run the score refresh.</span>
+              </div>
+            ) : (
+              <p className="caveat" style={{ margin: "10px 14px 14px" }}>
+                Percentile ranks this person among current employees (higher = riskier). Data confidence
+                shows how complete their inputs were{s?.scorer_version ? ` · ${s.scorer_version}` : ""}.
+              </p>
+            )}
           </div>
 
           <div className="card">
@@ -145,6 +158,7 @@ export function Profile({ token }: { token?: string }) {
                     </span>
                     <span className="factor-w">{Math.round(f.weight * 100)}%</span>
                   </div>
+                  {f.detail && <div className="factor-detail">{f.detail}</div>}
                   <div className="factor-bar">
                     <div className="factor-fill" style={{ width: `${f.weight * 100}%`, background: f.weight >= 0.7 ? "var(--risk-high)" : f.weight >= 0.5 ? "var(--risk-med)" : "var(--accent)" }} />
                   </div>
@@ -161,9 +175,9 @@ export function Profile({ token }: { token?: string }) {
               <p className="caveat" style={{ marginTop: 0 }}>All dollar / ratio figures are modeled estimates — not precise individual values.</p>
               <table className="tbl">
                 <tbody>
-                  {emp.capital.map((c) => (
+                  {[...emp.capital].sort(byCapitalOrder).map((c) => (
                     <tr key={c.metric} style={{ cursor: "default" }}>
-                      <td>{titleCase(c.metric)}</td>
+                      <td>{capitalLabel(c.metric)}</td>
                       <td className="td-num" style={{ fontWeight: 600 }}>
                         {formatCapital(c)}{c.is_estimate ? <span className="caveat"> *est</span> : null}
                       </td>
@@ -195,7 +209,8 @@ export function Profile({ token }: { token?: string }) {
               <div className="card-title"><Icon name="target" size={16} style={{ color: "var(--text-3)" }} /> Intelligence Panel</div>
             </div>
             <div className="card-body">
-              {emp.panel.length ? emp.panel.map((m) => <ScoreBar key={m.metric} score={m.score} label={m.metric} />)
+              {emp.panel.length ? emp.panel.map((m) => <ScoreBar key={m.metric} score={m.score} label={m.metric}
+                                                                 risk={m.metric === "retention_risk"} />)
                 : <p className="muted">No score panel yet — run the score refresh.</p>}
               {a && a.engagement_pulse == null && (
                 <p className="caveat">Engagement is not shown: this employee has not consented to engagement signals (no covert monitoring).</p>

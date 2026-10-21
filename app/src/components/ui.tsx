@@ -38,17 +38,20 @@ export function RiskBadge({ score, label }: { score: number | null | undefined; 
   );
 }
 
-export function ScoreBar({ score, label }: { score: number | null; label: string }) {
+// `risk` scores are worse when high (risk colours); every other panel score is better when
+// high, so it gets one neutral accent instead of a red/green judgement.
+export function ScoreBar({ score, label, risk = false }: { score: number | null; label: string; risk?: boolean }) {
+  const color = score == null ? "var(--text-dim)" : risk ? riskColor(score) : "var(--accent)";
   return (
     <div style={{ marginBottom: 10 }}>
       <div className="row between" style={{ marginBottom: 4 }}>
         <span>{titleCase(label)}</span>
-        <span style={{ fontWeight: 600, color: score == null ? "var(--text-dim)" : riskColor(score) }}>
+        <span style={{ fontWeight: 600, color: risk ? color : "var(--text)" }}>
           {score == null ? "—" : score}
         </span>
       </div>
       <div className="bar">
-        <span style={{ width: `${score ?? 0}%`, background: score == null ? "var(--border)" : riskColor(score) }} />
+        <span style={{ width: `${score ?? 0}%`, background: score == null ? "var(--border)" : color }} />
       </div>
     </div>
   );

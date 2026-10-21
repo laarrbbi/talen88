@@ -35,10 +35,13 @@ export function Dashboard() {
   );
 
   const h = d.headline;
-  // Retention priorities: highest-stakes points (high risk + high value), token-only.
+  // Retention priorities: the most dollars at risk (chance of leaving x cost to lose),
+  // token-only. Falls back to risk x value for scores produced before scoring v2.
+  const stake = (p: typeof d.quadrant[number]) =>
+    p.expected_loss ?? (p.flight_risk >= 70 && p.value_score >= 60 ? p.flight_risk * p.value_score : 0);
   const priorities = [...d.quadrant]
-    .filter((p) => p.flight_risk >= 70 && p.value_score >= 60)
-    .sort((a, b) => b.flight_risk * b.value_score - a.flight_risk * a.value_score)
+    .filter((p) => stake(p) > 0)
+    .sort((a, b) => stake(b) - stake(a))
     .slice(0, 6);
 
   return (
@@ -58,8 +61,8 @@ export function Dashboard() {
       <div className="kpi-row" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
         <Kpi icon="users" label="Scored" value={h.total_scored} note="employees in scope" />
         <Kpi icon="alert" label="High risk" value={h.high_risk_count} note="flight-risk ≥ 70" color="var(--risk-high)" />
-        <Kpi icon="award" label="Key people" value={h.key_person_count} note="high business value" />
-        <Kpi icon="target" label="Act now" value={h.act_now_count} note="high risk × high value" color="var(--risk-high)" />
+        <Kpi icon="award" label="Key people" value={h.key_person_count} note="top 20% by value" />
+        <Kpi icon="target" label="Act now" value={h.act_now_count} note="high risk × key person" color="var(--risk-high)" />
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.55fr) minmax(0,1fr)", gap: "var(--gap)", alignItems: "start" }}>
@@ -118,7 +121,9 @@ export function Dashboard() {
                   <span className="pq-rank">{i + 1}</span>
                   <div className="pq-body">
                     <div className="pq-name"><NameTag token={p.token} /></div>
-                    <div className="pq-meta">{p.division}{p.cost_to_lose ? ` · ~${usd(p.cost_to_lose)} to lose` : ""}</div>
+                    <div className="pq-meta">{p.division}{p.expected_loss != null
+                      ? ` · ~${usd(p.expected_loss)} at risk`
+                      : p.cost_to_lose ? ` · ~${usd(p.cost_to_lose)} to lose` : ""}</div>
                   </div>
                   <RiskBadge score={p.flight_risk} />
                 </a>
@@ -330,7 +335,8 @@ function Legend({ dot }: { dot?: boolean }) {
   );
 }
 
-// Risk × Value matrix on real 0–100 scales; thresholds at 70 (matches riskBand).
+// Risk × Value matrix on real 0–100 scales; risk threshold 70 (matches riskBand), value
+// threshold 80 (key people: top fifth by value).
 function Quadrant({ points }: { points: Dash["quadrant"] }) {
   const W = 560, H = 420, m = { t: 16, r: 16, b: 42, l: 52 };
   const iw = W - m.l - m.r, ih = H - m.t - m.b;
@@ -338,7 +344,7 @@ function Quadrant({ points }: { points: Dash["quadrant"] }) {
   const y = (val: number) => m.t + ih - (val / 100) * ih;
   const maxCost = Math.max(1, ...points.map((p) => p.cost_to_lose ?? 0));
   const rad = (c: number | null) => 4 + Math.sqrt((c ?? 0) / maxCost) * 11;
-  const midX = x(70), midY = y(70);
+  const midX = x(70), midY = y(80);
   const zones = [
     { tx: m.l + iw * 0.2, ty: m.t + ih * 0.14, t: "DEVELOP & GROW", s: "high value · stable", hot: false },
     { tx: m.l + iw * 0.85, ty: m.t + ih * 0.14, t: "RETAIN — URGENT", s: "high value · high risk", hot: true },
@@ -366,7 +372,7 @@ function Quadrant({ points }: { points: Dash["quadrant"] }) {
       <text x={m.l + iw / 2} y={H - 5} textAnchor="middle" fontSize="10.5" fontWeight="600" fill="var(--text-3)">FLIGHT RISK →</text>
       <text x={14} y={m.t + ih / 2} textAnchor="middle" fontSize="10.5" fontWeight="600" fill="var(--text-3)" transform={`rotate(-90 14 ${m.t + ih / 2})`}>BUSINESS VALUE →</text>
       {points.map((p) => {
-        const hot = p.flight_risk >= 70 && p.value_score >= 60;
+        const hot = p.flight_risk >= 70 && p.value_score >= 80;
         return (
           <a key={p.token} href={`#/profile/${p.token}`} style={{ cursor: "pointer" }}>
             <circle cx={x(p.flight_risk)} cy={y(p.value_score)} r={rad(p.cost_to_lose)}

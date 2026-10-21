@@ -256,10 +256,13 @@ def build(seed: int = 7) -> None:
     l4_by_tenure = sorted([e for e in retained_senior if e["level"] == 4],
                           key=lambda e: e["hire_date"])[:5]
     one_head = [e for e in retained_senior if e["level"] >= 5][:1]
-    for e in l4_by_tenure + one_head:
+    for k, e in enumerate(l4_by_tenure + one_head):
         p = _persona_for(rng, "high", allow_cliff=False)
         p.update(comp_gap=round(rng.uniform(0.30, 0.40), 3),
-                 promo_months=rng.randint(42, 54), mgr_changes=2)
+                 promo_months=rng.randint(42, 54), mgr_changes=2,
+                 # A star performs: strong ratings, goals and output. Derived without
+                 # extra random draws so the rest of the seeded dataset is unchanged.
+                 perf_base=round(4.3 + 0.1 * (k % 5), 2), star=True)
         e["persona"] = p
 
     for e in employees:
@@ -648,21 +651,30 @@ def _write_career_mobility(conn, rng, e) -> None:
 
 
 def _write_performance(conn, rng, e) -> None:
-    """Canonical Table 4 (core) + §5 division signal pack rows."""
-    base = min(5.0, 2.6 + 0.3 * e["level"])
+    """Canonical Table 4 (core) + §5 division signal pack rows. A 'star' persona keeps the
+    same random draws but maps them onto the top of each range."""
+    star = e["persona"].get("star", False)
+    base = e["persona"]["perf_base"] if star else min(5.0, 2.6 + 0.3 * e["level"])
     ratings = [{"period": "2024", "score": round(min(5.0, base + rng.uniform(-0.6, 0.4)), 1)},
                {"period": "2025", "score": round(min(5.0, base + rng.uniform(-0.4, 0.5)), 1)}]
+    goal = rng.uniform(0.6, 1.2)
+    if star:
+        goal = 1.05 + (goal - 0.6) / 0.6 * 0.15
     conn.execute(
         "INSERT INTO performance (employee_token, review_ratings, goal_attainment, "
         "performance_trend) VALUES (?,?,?,?)",
-        (e["token"], json.dumps(ratings), round(rng.uniform(0.6, 1.2), 2),
+        (e["token"], json.dumps(ratings), round(goal, 2),
          round(rng.uniform(-0.3, 0.4), 2)),
     )
     for signal, unit, lo, hi in DIVISION_SIGNAL_PACKS.get(e["division"], []):
+        value = rng.uniform(lo, hi)
+        if star:   # top 30% of the range (bottom 30% where lower is better)
+            frac = (value - lo) / (hi - lo)
+            value = lo + (0.3 * frac if signal == "cycle_time" else 0.7 + 0.3 * frac) * (hi - lo)
         conn.execute(
             "INSERT INTO performance_division_signals (employee_token, division, signal, "
             "value, unit) VALUES (?,?,?,?,?)",
-            (e["token"], e["division"], signal, round(rng.uniform(lo, hi), 2), unit),
+            (e["token"], e["division"], signal, round(value, 2), unit),
         )
 
 

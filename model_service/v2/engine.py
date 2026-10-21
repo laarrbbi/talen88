@@ -128,20 +128,33 @@ class V2Scorer:
         intercept = self._intercept([p["logit"] for p in partial], rows, base_rate)
         probs = [_sigmoid(p["logit"] + intercept) for p in partial]
         ref_probs = sorted(p for p, r in zip(probs, rows) if r.get("reference", True))
+        # Value is reported as a percentile among current employees ("more valuable than
+        # X% of colleagues"); averaging many peer ranks would otherwise bunch everyone
+        # near the middle. Small batches keep the raw 0..1 composite.
+        values = [self._composite(norm, i, self._value_spec())[0] for i in range(len(rows))]
+        ref_values = sorted(v for v, r in zip(values, rows)
+                            if v is not None and r.get("reference", True))
 
         results = []
         for i, r in enumerate(rows):
             p = probs[i]
             index = self._index(p, fr_cfg["index_anchors"])
             reasons = self._reason_codes(partial[i]["contribs"])
-            value, value_reasons = self._composite(norm, i, self._value_spec())
+            value = values[i]
             panel = self._panel(norm, i, index, reasons)
             percentile = None
             if len(ref_probs) >= MIN_GROUP:
                 lo = bisect.bisect_left(ref_probs, p)
                 hi = bisect.bisect_right(ref_probs, p)
                 percentile = round(100 * (lo + 0.5 * (hi - lo)) / len(ref_probs))
-            value_score = round(value * 100) if value is not None else 0
+            if value is None:
+                value_score = 0
+            elif len(ref_values) >= MIN_GROUP:
+                lo = bisect.bisect_left(ref_values, value)
+                hi = bisect.bisect_right(ref_values, value)
+                value_score = round(100 * (lo + 0.5 * (hi - lo)) / len(ref_values))
+            else:
+                value_score = round(value * 100)
             results.append(ScoreResult(
                 employee_token=r["employee_token"], flight_risk=index, risk_trend=0,
                 value_score=value_score, reason_codes=reasons, metrics=panel,

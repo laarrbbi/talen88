@@ -3,9 +3,9 @@ import { api, EmployeeRow } from "../api/client";
 import { NameTag } from "../components/NameTag";
 import { SkeletonTable } from "../components/ui";
 import { Icon } from "../components/icons";
-import { riskBand, riskColor, titleCase } from "../lib/format";
+import { riskBand, riskColor, titleCase, usdCompact } from "../lib/format";
 
-type SortKey = "division" | "flight_risk" | "delta" | "value" | "comp" | "tenure";
+type SortKey = "division" | "flight_risk" | "loss" | "delta" | "value" | "comp" | "tenure";
 type Band = "all" | "high" | "med" | "low";
 
 const BANDS: [Band, string, string | null][] = [
@@ -67,6 +67,7 @@ export function Watchlist() {
       switch (sort) {
         case "division": return r.division;
         case "flight_risk": return r.latest_score?.flight_risk ?? -1;
+        case "loss": return r.latest_score?.expected_loss ?? -1;
         case "delta": return r.latest_score?.risk_trend ?? 0;
         case "value": return r.latest_score?.value_score ?? -1;
         case "comp": return r.features?.comp_gap ?? Number.NEGATIVE_INFINITY;
@@ -130,7 +131,7 @@ export function Watchlist() {
       {err ? (
         <p className="flash err">Could not load the watchlist.</p>
       ) : !all ? (
-        <SkeletonTable rows={9} cols={8} widths={["46%", "60%", "70%", "40%", "70%", "55%", "50%", "62%"]} />
+        <SkeletonTable rows={9} cols={9} widths={["46%", "60%", "70%", "45%", "40%", "70%", "55%", "50%", "62%"]} />
       ) : (
         <>
           <div className="card" style={{ overflow: "hidden" }}>
@@ -141,6 +142,7 @@ export function Watchlist() {
                     <th>Employee</th>
                     <Th k="division" sort={sort} dir={dir} onSort={onSort}>Division</Th>
                     <Th k="flight_risk" sort={sort} dir={dir} onSort={onSort} num>Flight Risk</Th>
+                    <Th k="loss" sort={sort} dir={dir} onSort={onSort} num>$ at Risk</Th>
                     <Th k="delta" sort={sort} dir={dir} onSort={onSort} num>Δ QoQ</Th>
                     <Th k="value" sort={sort} dir={dir} onSort={onSort} num>Value</Th>
                     <Th k="comp" sort={sort} dir={dir} onSort={onSort} num>Comp Gap</Th>
@@ -155,6 +157,8 @@ export function Watchlist() {
                     const dRound = delta == null ? null : Math.round(delta);
                     const tier = valueTier(r.latest_score?.value_score);
                     const comp = r.features?.comp_gap ?? null;
+                    const prob = r.latest_score?.leave_probability ?? null;
+                    const loss = r.latest_score?.expected_loss ?? null;
                     return (
                       <tr key={r.token} onClick={() => { window.location.hash = `#/profile/${r.token}`; }}>
                         <td>
@@ -168,11 +172,15 @@ export function Watchlist() {
                         <td><span className="subtle" style={{ color: "var(--text-2)" }}>{r.division}</span></td>
                         <td className="td-num">
                           {risk == null ? <span className="code">no score</span> : (
-                            <div className="scorebar">
+                            <div className="scorebar" title={prob != null ? `${Math.round(prob * 100)}% chance of leaving in the next 12 months` : undefined}>
                               <span className="track"><span className="fill" style={{ width: `${risk}%`, background: riskColor(risk) }} /></span>
                               <span className="sv" style={{ color: riskColor(risk) }}>{risk}</span>
                             </div>
                           )}
+                        </td>
+                        <td className="td-num mono" style={{ color: "var(--text-2)" }}
+                            title="Estimated: chance of leaving x cost to replace">
+                          {loss == null ? "—" : usdCompact(loss)}
                         </td>
                         <td className="td-num">
                           {dRound == null ? <span className="subtle">—</span> : (
@@ -197,7 +205,7 @@ export function Watchlist() {
                           <div className="codes">
                             {r.reason_codes.length === 0 && <span className="subtle">—</span>}
                             {r.reason_codes.slice(0, 3).map((c, i) => (
-                              <span key={i} className={`code ${c.direction === "increases" ? "sev" : "mod"}`}>{titleCase(c.label)}</span>
+                              <span key={i} className={`code ${c.direction === "increases" ? "sev" : "mod"}`} title={c.detail ?? undefined}>{titleCase(c.label)}</span>
                             ))}
                             {r.reason_codes.length > 3 && <span className="code">+{r.reason_codes.length - 3}</span>}
                           </div>
@@ -206,7 +214,7 @@ export function Watchlist() {
                     );
                   })}
                   {!rows.length && (
-                    <tr><td colSpan={8} className="subtle" style={{ padding: 18 }}>No employees match this filter.</td></tr>
+                    <tr><td colSpan={9} className="subtle" style={{ padding: 18 }}>No employees match this filter.</td></tr>
                   )}
                 </tbody>
               </table>
