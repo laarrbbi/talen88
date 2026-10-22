@@ -88,3 +88,16 @@ def decrypt(blob: bytes) -> str:
         return _cipher().decrypt(blob).decode("utf-8")
     except InvalidToken as exc:
         raise KeyError_("decryption failed") from exc
+
+
+def encrypt_bytes(data: bytes) -> bytes:
+    """Encrypt raw bytes (e.g. an uploaded document) to an authenticated ciphertext blob."""
+    return _cipher().encrypt(data)
+
+
+def decrypt_bytes(blob: bytes) -> bytes:
+    """Decrypt a blob made by `encrypt_bytes`. Raises KeyError_ on tamper/wrong key."""
+    try:
+        return _cipher().decrypt(blob)
+    except InvalidToken as exc:
+        raise KeyError_("decryption failed") from exc

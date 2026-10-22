@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
-import { api, Employee360, EmployeeRow, Score } from "../api/client";
+import { useEffect, useRef, useState } from "react";
+import { api, ApiError, Employee360, EmployeeDocument, EmployeeRow, Score, TimelineEvent } from "../api/client";
+import { useAuth } from "../App";
 import { NameTag } from "../components/NameTag";
 import { ScoreBar, RiskBadge, Skeleton, SkeletonChartCard } from "../components/ui";
 import { Icon } from "../components/icons";
@@ -17,13 +18,17 @@ export function Profile({ token }: { token?: string }) {
   // list. We fetch the in-scope list once and merge this token's features in, so
   // the profile shows every datapoint the data layer exposes for the employee.
   const [feat, setFeat] = useState<EmployeeRow["features"]>(null);
+  const [events, setEvents] = useState<TimelineEvent[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const { me } = useAuth();
 
   useEffect(() => {
     if (!token) return;
     setEmp(null);
     setFeat(null);
+    setEvents(null);
     api.employee360(token).then(setEmp).catch(() => setErr("Not found or out of your scope."));
+    api.timeline(token).then((t) => setEvents(t.events)).catch(() => setEvents([]));
     api.employees().then((list) => setFeat(list.find((r) => r.token === token)?.features ?? null)).catch(() => {});
   }, [token]);
 
@@ -197,10 +202,8 @@ export function Profile({ token }: { token?: string }) {
               <div className="card-title"><Icon name="pulse" size={16} style={{ color: "var(--text-3)" }} /> Flight-Risk Trend</div>
             </div>
             <div className="card-body">
-              <Trend history={emp.history} />
-              <div className="nodata" style={{ marginTop: 12 }}>
-                <Icon name="alert" /> <span>Event annotations (comp / role / risk events on the timeline) are <b>not yet available</b> from the API.</span>
-              </div>
+              <Trend history={emp.history} events={events ?? []} />
+              <RecentEvents events={events} />
             </div>
           </div>
 
@@ -243,45 +246,10 @@ export function Profile({ token }: { token?: string }) {
             </div>
             <div className="card">
               <div className="card-head">
-                <div className="card-title"><Icon name="clock" size={16} style={{ color: "var(--text-3)" }} /> Role &amp; Tenure History</div>
+                <div className="card-title"><Icon name="clock" size={16} style={{ color: "var(--text-3)" }} /> Career History</div>
               </div>
               <div className="card-body">
-                <div className="timeline">
-                  {p?.promotions && p.promotions.length ? (
-                    [...p.promotions]
-                      .sort((x, y) => (y.date ?? "").localeCompare(x.date ?? ""))
-                      .map((pr, i) => (
-                        <div className="tl-item" key={i}>
-                          <span className="tl-dot" />
-                          <div className="tl-date">{pr.date ? monthYear(pr.date) : "—"}</div>
-                          <div className="tl-title">Promotion{pr.to ? ` → ${pr.to}` : ""}</div>
-                          <div className="tl-desc">{pr.from ? `From ${pr.from}` : "Level change"}</div>
-                        </div>
-                      ))
-                  ) : feat && (
-                    <div className="tl-item">
-                      <span className="tl-dot" />
-                      <div className="tl-date">{feat.months_since_promotion} mo ago</div>
-                      <div className="tl-title">Last promotion</div>
-                      <div className="tl-desc">
-                        {feat.months_since_promotion === 0
-                          ? "Promoted in the current period"
-                          : `${(feat.months_since_promotion / 12).toFixed(1)} yrs since last promotion`}
-                      </div>
-                    </div>
-                  )}
-                  <div className="tl-item">
-                    <span className="tl-dot accent" />
-                    <div className="tl-date">{monthYear(emp.hire_date)}</div>
-                    <div className="tl-title">Hired · {titleCase(emp.employment_type)}</div>
-                    <div className="tl-desc">{p?.title || emp.role} in {emp.division}</div>
-                  </div>
-                </div>
-                {!(p?.promotions && p.promotions.length) && (
-                  <div className="nodata" style={{ marginTop: 12 }}>
-                    <Icon name="alert" /> <span>Detailed per-event role history is limited — hire date and last-promotion timing are the available signals.</span>
-                  </div>
-                )}
+                <CareerHistory events={events} />
               </div>
             </div>
           </div>
@@ -352,16 +320,7 @@ export function Profile({ token }: { token?: string }) {
             </div>
           </div>
 
-          <div className="card">
-            <div className="card-head">
-              <div className="card-title2">Documents<span className="ann">0 files</span></div>
-            </div>
-            <div className="card-body">
-              <div className="nodata">
-                <Icon name="file" /> <span>Source-document management (CV, contract, comp letters, reviews) is <b>not yet available</b>.</span>
-              </div>
-            </div>
-          </div>
+          <DocumentsCard token={emp.token} isAdmin={me.role === "admin"} />
 
           <div className="card">
             <div className="card-head">
@@ -432,7 +391,23 @@ function Gauge({ score, size = 200 }: { score: number; size?: number }) {
 }
 
 // Retention-risk trend area chart on a real 0–100 scale, dates from /360 history.
-function Trend({ history }: { history: Score[] }) {
+// Event kinds -> short marker label + colour on the trend chart and in the history list.
+const EVENT_STYLE: Record<string, { mark: string; color: string; label: string }> = {
+  promotion: { mark: "P", color: "var(--risk-low)", label: "Promotion" },
+  raise: { mark: "$", color: "var(--risk-low)", label: "Pay raise" },
+  bonus: { mark: "B", color: "var(--risk-low)", label: "Bonus" },
+  vest: { mark: "V", color: "var(--accent)", label: "Stock vest" },
+  manager_change: { mark: "M", color: "var(--risk-med)", label: "New manager" },
+  internal_move: { mark: "T", color: "var(--text-3)", label: "Team move" },
+  internal_application: { mark: "A", color: "var(--risk-med)", label: "Internal application" },
+  role_change: { mark: "R", color: "var(--text-3)", label: "Role change" },
+  intervention: { mark: "★", color: "var(--accent)", label: "Retention action" },
+  hire: { mark: "H", color: "var(--text-3)", label: "Joined" },
+  exit: { mark: "×", color: "var(--risk-high)", label: "Left" },
+};
+const styleOf = (kind: string) => EVENT_STYLE[kind] ?? { mark: "•", color: "var(--text-3)", label: kind };
+
+function Trend({ history, events }: { history: Score[]; events: TimelineEvent[] }) {
   if (history.length < 2) return <p className="muted">Not enough history to chart.</p>;
   const W = 720, H = 250, m = { t: 18, r: 18, b: 30, l: 36 };
   const iw = W - m.l - m.r, ih = H - m.t - m.b, n = history.length;
@@ -443,6 +418,11 @@ function Trend({ history }: { history: Score[] }) {
   const area = `${line} L${x(n - 1)} ${m.t + ih} L${x(0)} ${m.t + ih} Z`;
   const cur = vals[n - 1], col = riskColor(cur);
   const grid = [0, 25, 50, 75, 100];
+  // Place each event between the snapshots it falls between (dates are ISO, so they sort).
+  const t0 = Date.parse(history[0].as_of_date), t1 = Date.parse(history[n - 1].as_of_date);
+  const xAt = (iso: string) => m.l + ((Date.parse(iso) - t0) / (t1 - t0)) * iw;
+  const inWindow = events.filter((e) => !e.upcoming && e.date >= history[0].as_of_date
+                                        && e.date <= history[n - 1].as_of_date);
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: "block" }} role="img" aria-label="risk trend">
       <defs>
@@ -464,7 +444,164 @@ function Trend({ history }: { history: Score[] }) {
       {history.map((h, i) => (
         <text key={h.as_of_date} x={x(i)} y={H - 8} textAnchor="middle" fontSize="9.5" fill="var(--text-4)" fontFamily="var(--mono)">{shortDate(h.as_of_date)}</text>
       ))}
+      {inWindow.map((e, i) => {
+        const st = styleOf(e.kind), ex = xAt(e.date);
+        return (
+          <g key={`${e.kind}-${e.date}-${i}`}>
+            <line x1={ex} y1={m.t + 12} x2={ex} y2={m.t + ih} stroke={st.color} strokeDasharray="3 3" opacity={0.7} />
+            <circle cx={ex} cy={m.t + 6} r={8} fill="var(--surface)" stroke={st.color} strokeWidth={1.5} />
+            <text x={ex} y={m.t + 9.5} textAnchor="middle" fontSize="9.5" fontWeight={700} fill={st.color}>{st.mark}</text>
+            <title>{`${shortDate(e.date)} · ${e.title}${e.detail ? ` — ${e.detail}` : ""}`}</title>
+          </g>
+        );
+      })}
       <circle cx={x(n - 1)} cy={y(cur)} r={4} fill={col} stroke="var(--surface)" strokeWidth={2} />
     </svg>
+  );
+}
+
+// The latest few past events and the next upcoming one, under the trend chart.
+function RecentEvents({ events }: { events: TimelineEvent[] | null }) {
+  if (events == null) return <Skeleton className="sk-line" w="60%" h={12} style={{ marginTop: 12 }} />;
+  const past = events.filter((e) => !e.upcoming).slice(0, 4);
+  const next = [...events].reverse().find((e) => e.upcoming);
+  if (!past.length && !next) return <p className="muted" style={{ marginTop: 10 }}>No dated events on record.</p>;
+  return (
+    <div className="ev-strip">
+      {next && <EventChip e={next} />}
+      {past.map((e, i) => <EventChip key={i} e={e} />)}
+    </div>
+  );
+}
+
+function EventChip({ e }: { e: TimelineEvent }) {
+  const st = styleOf(e.kind);
+  return (
+    <span className={`ev-chip${e.upcoming ? " upcoming" : ""}`} title={e.detail || undefined}>
+      <b style={{ color: st.color }}>{st.mark}</b> {e.title}
+      <span className="ev-date">{e.upcoming ? "due " : ""}{e.approximate ? "~" : ""}{monthYear(e.date)}</span>
+    </span>
+  );
+}
+
+function CareerHistory({ events }: { events: TimelineEvent[] | null }) {
+  if (events == null) return <Skeleton className="sk-line" w="70%" h={14} />;
+  if (!events.length) return <p className="muted">No career events on record.</p>;
+  return (
+    <div className="timeline">
+      {events.map((e, i) => {
+        const st = styleOf(e.kind);
+        return (
+          <div className={`tl-item${e.upcoming ? " tl-upcoming" : ""}`} key={i}>
+            <span className="tl-dot" style={{ borderColor: st.color, background: e.kind === "hire" ? st.color : undefined }} />
+            <div className="tl-date">{e.upcoming ? "upcoming · " : ""}{e.approximate ? "about " : ""}{monthYear(e.date)}</div>
+            <div className="tl-title">{e.title}</div>
+            {e.detail && <div className="tl-desc">{e.detail}</div>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const DOC_TYPE_OPTIONS: [string, string][] = [
+  ["auto", "Detect type"], ["cv", "CV / résumé"], ["contract", "Contract"], ["offer", "Offer letter"],
+  ["payslip", "Payslip"], ["review", "Performance review"], ["other", "Other"],
+];
+
+function fileSize(n: number): string {
+  return n >= 1_048_576 ? `${(n / 1_048_576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`;
+}
+
+// HR-admin only: the server refuses everyone else, and the card says so instead of
+// showing an error.
+function DocumentsCard({ token, isAdmin }: { token: string; isAdmin: boolean }) {
+  const [docs, setDocs] = useState<EmployeeDocument[] | null>(null);
+  const [docType, setDocType] = useState("auto");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const input = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    api.documents(token).then(setDocs).catch(() => setDocs([]));
+  }, [token, isAdmin]);
+
+  const upload = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true); setErr(null);
+    try {
+      const doc = await api.uploadDocument(token, file, docType);
+      setDocs((d) => [doc, ...(d ?? [])]);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Upload failed.");
+    } finally {
+      setBusy(false);
+      if (input.current) input.current.value = "";
+    }
+  };
+
+  const remove = async (doc: EmployeeDocument) => {
+    if (!window.confirm(`Delete ${doc.filename}? This cannot be undone.`)) return;
+    try {
+      await api.deleteDocument(token, doc.id);
+      setDocs((d) => (d ?? []).filter((x) => x.id !== doc.id));
+    } catch {
+      setErr("Could not delete that document.");
+    }
+  };
+
+  return (
+    <div className="card">
+      <div className="card-head">
+        <div className="card-title2">Documents<span className="ann">{isAdmin ? `${docs?.length ?? 0} files · HR only` : "HR only"}</span></div>
+        {isAdmin && (
+          <div className="row" style={{ gap: 8 }}>
+            <select className="chip-filter" value={docType} onChange={(e) => setDocType(e.target.value)} aria-label="Document type">
+              {DOC_TYPE_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+            <button className="btn" disabled={busy} onClick={() => input.current?.click()}>
+              <Icon name="plus" size={14} /> {busy ? "Uploading…" : "Upload"}
+            </button>
+            <input ref={input} type="file" hidden accept=".pdf,.docx,.txt,.png,.jpg,.jpeg"
+                   onChange={(e) => upload(e.target.files?.[0])} />
+          </div>
+        )}
+      </div>
+      <div className="card-body">
+        {!isAdmin ? (
+          <div className="nodata">
+            <Icon name="lock" /> <span>CVs, contracts, payslips and reviews are visible to <b>HR admins only</b>.</span>
+          </div>
+        ) : (
+          <>
+            {err && <p className="flash err" style={{ marginTop: 0 }}>{err}</p>}
+            {docs == null ? <Skeleton className="sk-line" w="60%" h={14} /> : docs.length === 0 ? (
+              <p className="muted" style={{ margin: 0 }}>No documents yet. Uploads are encrypted and every access is logged.</p>
+            ) : (
+              <table className="tbl">
+                <tbody>
+                  {docs.map((d) => (
+                    <tr key={d.id} style={{ cursor: "default" }}>
+                      <td><span className="code">{titleCase(d.doc_type)}</span></td>
+                      <td style={{ wordBreak: "break-all" }}>{d.filename}</td>
+                      <td className="td-num subtle">{fileSize(d.size_bytes)} · {monthYear(d.uploaded_at)}</td>
+                      <td className="td-num" style={{ whiteSpace: "nowrap" }}>
+                        <button className="icon-btn" title="Download" onClick={() => api.downloadDocument(token, d).catch(() => setErr("Download failed."))}>
+                          <Icon name="download" size={15} />
+                        </button>
+                        <button className="icon-btn" title="Delete" onClick={() => remove(d)}>
+                          <Icon name="close" size={15} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </>
+        )}
+      </div>
+    </div>
   );
 }

@@ -79,8 +79,35 @@ async function uploadData<T>(path: string, form: FormData): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+// Authenticated file download (documents): fetch the bytes with the bearer token, then
+// hand the browser a temporary object URL to save.
+async function downloadData(path: string, fallbackName: string): Promise<void> {
+  const token = getToken();
+  const res = await fetch(`${DATA_URL}${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (res.status === 401 && token) {
+    setToken(null);
+    window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+  }
+  if (!res.ok) throw new ApiError(res.status, res.statusText);
+  const match = /filename="([^"]+)"/.exec(res.headers.get("Content-Disposition") ?? "");
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = match?.[1] ?? fallbackName;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 // ---- types (mirror the data/agent contracts) -------------------------------
 export interface Me { email: string; name: string; role: string; division: string | null; }
+export interface TimelineEvent {
+  date: string; kind: string; title: string; detail: string;
+  upcoming: boolean; approximate?: boolean;
+}
+export interface EmployeeDocument {
+  id: number; doc_type: string; filename: string; mime: string; size_bytes: number;
+  uploaded_by: string; uploaded_at: string;
+}
 export interface LoginResult extends Me { token: string; expires_in: number; }
 
 export interface Score {
@@ -369,6 +396,18 @@ export const api = {
     return data<EmployeeRow[]>(`/employees${qs ? `?${qs}` : ""}`);
   },
   employee360: (token: string) => data<Employee360>(`/employees/${token}/360`),
+  timeline: (token: string) => data<{ token: string; events: TimelineEvent[] }>(`/employees/${token}/timeline`),
+  documents: (token: string) => data<EmployeeDocument[]>(`/employees/${token}/documents`),
+  uploadDocument: (token: string, file: File, docType = "auto") => {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("doc_type", docType);
+    return uploadData<EmployeeDocument>(`/employees/${token}/documents`, fd);
+  },
+  downloadDocument: (token: string, doc: EmployeeDocument) =>
+    downloadData(`/employees/${token}/documents/${doc.id}`, doc.filename),
+  deleteDocument: (token: string, id: number) =>
+    data<{ deleted: number }>(`/employees/${token}/documents/${id}`, { method: "DELETE" }),
 
   // ---- document import: real, persisted employee creation (admin-only) -----
   importDivisions: () => data<ImportDivision[]>("/import/divisions"),

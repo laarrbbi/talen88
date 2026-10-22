@@ -24,6 +24,8 @@ SCHEMA_OPS_PATH = Path(__file__).resolve().parent / "schema_ops.sql"
 # employees(token) and each other, and write results into the existing `engagement`
 # table. Never modifies a base/canonical/ops table.
 SCHEMA_SURVEYS_PATH = Path(__file__).resolve().parent / "schema_surveys.sql"
+# Employee documents (encrypted). Written with IF NOT EXISTS so migrate() can add it.
+SCHEMA_DOCUMENTS_PATH = Path(__file__).resolve().parent / "schema_documents.sql"
 
 # Survey tables to drop FIRST on reset (children before parents; all FK -> employees
 # and/or another survey_* table, so they must drop before employees/divisions).
@@ -90,6 +92,8 @@ _ADDED_COLUMNS = (
 def migrate(conn: sqlite3.Connection) -> None:
     """Bring an existing database up to the current schema without dropping data."""
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if "employees" in tables:
+        conn.executescript(SCHEMA_DOCUMENTS_PATH.read_text())
     for table, column, ddl in _ADDED_COLUMNS:
         if table not in tables:
             continue
@@ -109,6 +113,7 @@ def init_db(conn: sqlite3.Connection) -> None:
     }
     for table in (
         *_SURVEY_TABLES,
+        "employee_documents",
         "employee_ops",
         *_CANONICAL_TABLES,
         "audit_log",
@@ -133,4 +138,5 @@ def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA_CANONICAL_PATH.read_text())
     conn.executescript(SCHEMA_OPS_PATH.read_text())
     conn.executescript(SCHEMA_SURVEYS_PATH.read_text())
+    conn.executescript(SCHEMA_DOCUMENTS_PATH.read_text())
     conn.commit()

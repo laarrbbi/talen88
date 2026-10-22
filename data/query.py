@@ -78,6 +78,20 @@ def _scope_division(actor: Actor, requested: str | None) -> str | None:
     return requested if actor.is_admin else actor.division
 
 
+# Reason codes that reveal something the employee would reasonably expect their manager
+# not to know (applying for another internal role). HR admins see them; everyone else
+# sees a generic stand-in with the same weight, so the score still adds up.
+_HR_ONLY_REASONS = {"applied_internally", "recent_internal_application"}
+
+
+def _visible_reasons(codes: list[dict[str, Any]], actor: Actor) -> list[dict[str, Any]]:
+    if actor.is_admin:
+        return codes
+    return [{**c, "label": "career_movement_signal",
+             "detail": "Career-movement signal (details visible to HR only)"}
+            if c.get("label") in _HR_ONLY_REASONS else c for c in codes]
+
+
 def get_employees(
     conn: sqlite3.Connection,
     *,
@@ -152,7 +166,7 @@ def get_employees(
         {limit_sql}
     """
     rows = conn.execute(sql, params + tail).fetchall()
-    records = [_build_record(conn, r) for r in rows]
+    records = [_build_record(conn, r, actor) for r in rows]
 
     write_audit(
         conn, actor_email=actor.email, action="get_employees",
@@ -164,7 +178,7 @@ def get_employees(
     return records
 
 
-def _build_record(conn: sqlite3.Connection, r: sqlite3.Row) -> dict[str, Any]:
+def _build_record(conn: sqlite3.Connection, r: sqlite3.Row, actor: Actor) -> dict[str, Any]:
     latest_score = None
     if r["flight_risk"] is not None:
         latest_score = {
@@ -182,7 +196,7 @@ def _build_record(conn: sqlite3.Connection, r: sqlite3.Row) -> dict[str, Any]:
             "ORDER BY weight DESC",
             (r["token"], r["score_date"]),
         ).fetchall()
-        reason_codes = [dict(rc) for rc in rc_rows]
+        reason_codes = _visible_reasons([dict(rc) for rc in rc_rows], actor)
     return {
         "token": r["token"],
         "role": r["role"], "level": r["level"], "division": r["division"],
@@ -228,7 +242,8 @@ def get_employee_history(
 
     write_audit(conn, actor_email=actor.email, action="get_employee_history",
                 filters={"token": token}, result_count=len(history))
-    return {**dict(emp), "history": history, "reason_codes": reason_codes}
+    return {**dict(emp), "history": history,
+            "reason_codes": _visible_reasons(reason_codes, actor)}
 
 
 def _profile_block(r: sqlite3.Row | None) -> dict[str, Any]:
@@ -332,6 +347,7 @@ def get_employee_360(
             rc_by_metric.setdefault(rc["metric"], []).append(
                 {"label": rc["label"], "direction": rc["direction"], "weight": rc["weight"],
                  "detail": rc["detail"]})
+        rc_by_metric = {k: _visible_reasons(v, actor) for k, v in rc_by_metric.items()}
         reason_codes = rc_by_metric.get("retention_risk", [])
         panel = [{"metric": m["metric"], "score": m["score"],
                   "reason_codes": rc_by_metric.get(m["metric"], [])}
@@ -368,6 +384,104 @@ def get_employee_360(
             "latest_score": latest_score, "reason_codes": reason_codes,
             "history": history, "panel": panel, "capital": capital,
             "profile": _profile_block(prof_row)}
+
+
+def _json_list(text: str | None) -> list:
+    import json as _json
+    try:
+        v = _json.loads(text) if text else []
+    except (ValueError, TypeError):
+        return []
+    return v if isinstance(v, list) else []
+
+
+def get_employee_timeline(
+    conn: sqlite3.Connection, token: str, *, actor: Actor, today: date | None = None
+) -> dict[str, Any]:
+    """Dated career and pay events for one employee, newest first (token-only).
+
+    Same scope + audit as the 360. Pay amounts and internal job applications are shown
+    to HR admins only; managers see that a raise or bonus happened, not how much, and do
+    not see internal applications at all. Upcoming events (vests, role changes) within a
+    year are included and flagged `upcoming`; dates derived from "N months ago" are
+    flagged `approximate`.
+    """
+    today = today or date.today()
+    emp = conn.execute(
+        "SELECT e.token, e.division, e.hire_date, e.manager_token, e.employment_type, e.role "
+        "FROM employees e WHERE e.token = ?", (token,)).fetchone()
+    if emp is None or (not actor.is_admin and emp["division"] != actor.division):
+        write_audit(conn, actor_email=actor.email, action="get_employee_timeline",
+                    filters={"token": token, "denied": emp is not None}, result_count=0)
+        return {}
+    events: list[dict[str, Any]] = []
+
+    def add(d: str | None, kind: str, title: str, detail: str = "", **extra: Any) -> None:
+        if d:
+            events.append({"date": d[:10], "kind": kind, "title": title, "detail": detail,
+                           "upcoming": d[:10] > today.isoformat(), **extra})
+
+    add(emp["hire_date"], "hire", "Joined the company",
+        f"{emp['role']} · {emp['employment_type'].replace('_', ' ')}")
+
+    cm = conn.execute("SELECT promotions, internal_moves, internal_application_history "
+                      "FROM career_mobility WHERE employee_token = ?", (token,)).fetchone()
+    if cm is not None:
+        for p in _json_list(cm["promotions"]):
+            if isinstance(p, dict):
+                frm, to = p.get("from"), p.get("to")
+                add(p.get("date"), "promotion", f"Promoted{f' to {to}' if to else ''}",
+                    f"from {frm}" if frm else "")
+        for m in _json_list(cm["internal_moves"]):
+            if isinstance(m, dict):
+                add(m.get("date"), "internal_move", "Moved team",
+                    f"to {m['team']}" if m.get("team") else "")
+        if actor.is_admin:
+            for a in _json_list(cm["internal_application_history"]):
+                if isinstance(a, dict):
+                    add(a.get("date"), "internal_application", "Applied for an internal role",
+                        "visible to HR only")
+
+    cp = conn.execute("SELECT last_raise_date, percent_salary_hike, bonus_history, vesting_dates "
+                      "FROM compensation WHERE employee_token = ?", (token,)).fetchone()
+    if cp is not None:
+        pct = cp["percent_salary_hike"]
+        add(cp["last_raise_date"], "raise", "Pay raise",
+            f"{pct:.1f}%" if actor.is_admin and pct is not None else "")
+        for b in _json_list(cp["bonus_history"]):
+            if isinstance(b, dict):
+                add(b.get("date"), "bonus", "Bonus paid")
+        horizon = (today + timedelta(days=365)).isoformat()
+        for v in _json_list(cp["vesting_dates"]):
+            if isinstance(v, str) and v[:10] <= horizon:
+                add(v, "vest", "Stock vest")
+
+    if emp["manager_token"]:
+        mt = conn.execute("SELECT time_since_manager_change FROM manager_team "
+                          "WHERE manager_token = ?", (emp["manager_token"],)).fetchone()
+        if mt is not None and mt["time_since_manager_change"] is not None:
+            changed = today - timedelta(days=round(30.44 * mt["time_since_manager_change"]))
+            add(changed.isoformat(), "manager_change", "New manager", approximate=True)
+
+    ops = conn.execute("SELECT role_change_note, role_change_date FROM employee_ops "
+                       "WHERE employee_token = ?", (token,)).fetchone()
+    if ops is not None and ops["role_change_note"]:
+        add(ops["role_change_date"], "role_change", "Role change", ops["role_change_note"])
+
+    for iv in conn.execute("SELECT action_type, date, status, outcome FROM interventions "
+                           "WHERE employee_token = ?", (token,)):
+        add(iv["date"], "intervention", f"Retention action: {(iv['action_type'] or '').replace('_', ' ')}",
+            " · ".join(x for x in (iv["status"], iv["outcome"]) if x))
+
+    left = conn.execute("SELECT term_date FROM label_attrition WHERE employee_token = ? "
+                        "AND attrition = 1", (token,)).fetchone()
+    if left is not None:
+        add(left["term_date"], "exit", "Left the company")
+
+    events.sort(key=lambda e: e["date"], reverse=True)
+    write_audit(conn, actor_email=actor.email, action="get_employee_timeline",
+                filters={"token": token}, result_count=len(events))
+    return {"token": token, "events": events}
 
 
 def get_dashboard_metrics(conn: sqlite3.Connection, *, actor: Actor) -> dict[str, Any]:

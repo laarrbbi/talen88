@@ -113,3 +113,12 @@ a:not([class]):hover { text-decoration: underline; }
 /* Panel score bar (ScoreBar): a thin track with a block fill. */
 .bar { height: 6px; border-radius: 4px; background: var(--inset); overflow: hidden; }
 .bar span { display: block; height: 100%; border-radius: 4px; }
+
+/* Profile: recent-events strip under the trend chart, upcoming items in the history. */
+.ev-strip { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.ev-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px 9px;
+  border: 1px solid var(--border); border-radius: 999px; background: var(--surface-2); }
+.ev-chip.upcoming { border-style: dashed; }
+.ev-chip .ev-date { font-family: var(--mono); font-size: 10.5px; color: var(--text-4); }
+.tl-upcoming .tl-title, .tl-upcoming .tl-desc { color: var(--text-3); }
+.card-body > .timeline { max-height: 420px; overflow-y: auto; padding-right: 6px; }

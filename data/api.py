@@ -28,7 +28,8 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import analytics, auth, cv_parse, identity, manual_ingest, notifications, query, surveys
+from . import (analytics, auth, cv_parse, documents, identity, manual_ingest, notifications,
+               query, surveys)
 from .audit import write_audit
 from .db import db_path, get_connection, migrate
 from .security.crypto import KeyError_
@@ -296,6 +297,87 @@ def employee_360(token: str, actor: auth.Actor = Depends(get_actor)) -> dict[str
     if not record:
         raise HTTPException(status_code=404, detail="not found or out of scope")
     return record
+
+
+@app.get("/employees/{token}/timeline")
+def employee_timeline(token: str, actor: auth.Actor = Depends(get_actor)) -> dict[str, Any]:
+    """Dated career and pay events (promotions, raises, vests, manager changes, retention
+    actions...), newest first. Scoped + audited; pay amounts and internal applications
+    are HR-admin only."""
+    if len(token) > 32:
+        raise HTTPException(status_code=400, detail="invalid token")
+    conn = get_connection()
+    try:
+        record = query.get_employee_timeline(conn, token, actor=actor)
+    finally:
+        conn.close()
+    if not record:
+        raise HTTPException(status_code=404, detail="not found or out of scope")
+    return record
+
+
+# ---- employee documents (HR-admin only, encrypted, audited) -------------------------
+@app.get("/employees/{token}/documents")
+def employee_documents(token: str, actor: auth.Actor = Depends(get_actor)) -> list[dict[str, Any]]:
+    conn = get_connection()
+    try:
+        return documents.list_documents(conn, token[:32], actor=actor)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="documents are restricted to HR admins")
+    finally:
+        conn.close()
+
+
+@app.post("/employees/{token}/documents")
+async def upload_employee_document(token: str, actor: auth.Actor = Depends(get_actor),
+                                   file: UploadFile = File(...),
+                                   doc_type: str = Form("auto")) -> dict[str, Any]:
+    raw = await file.read(documents.MAX_BYTES + 1)
+    conn = get_connection()
+    try:
+        return documents.add_document(conn, token[:32], actor=actor,
+                                      filename=file.filename or "document", raw=raw,
+                                      doc_type=doc_type)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="documents are restricted to HR admins")
+    except documents.DocumentError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    finally:
+        conn.close()
+
+
+@app.get("/employees/{token}/documents/{doc_id}")
+def download_employee_document(token: str, doc_id: int,
+                               actor: auth.Actor = Depends(get_actor)) -> Response:
+    conn = get_connection()
+    try:
+        found = documents.get_document(conn, token[:32], doc_id, actor=actor)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="documents are restricted to HR admins")
+    finally:
+        conn.close()
+    if found is None:
+        raise HTTPException(status_code=404, detail="not found")
+    meta, raw = found
+    safe_name = "".join(ch for ch in meta["filename"] if ch.isalnum() or ch in "._- ")[:120] or "document"
+    return Response(content=raw, media_type=meta["mime"], headers={
+        "Content-Disposition": f'attachment; filename="{safe_name}"',
+        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+
+@app.delete("/employees/{token}/documents/{doc_id}")
+def delete_employee_document(token: str, doc_id: int,
+                             actor: auth.Actor = Depends(get_actor)) -> dict[str, Any]:
+    conn = get_connection()
+    try:
+        deleted = documents.delete_document(conn, token[:32], doc_id, actor=actor)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="documents are restricted to HR admins")
+    finally:
+        conn.close()
+    if not deleted:
+        raise HTTPException(status_code=404, detail="not found")
+    return {"deleted": doc_id}
 
 
 @app.post("/identity/resolve")

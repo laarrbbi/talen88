@@ -118,6 +118,23 @@ export function DocumentImport() {
   const [divisions, setDivisions] = useState<ImportDivision[] | null>(null);
   const [suggestions, setSuggestions] = useState<CvSuggestions | null>(null);
   const [added, setAdded] = useState<CreatedEmployee[]>([]);
+  // Files read for the person being added; stored on their record once it is saved.
+  const [pending, setPending] = useState<{ file: File; docType: string }[]>([]);
+  const [docsKey, setDocsKey] = useState(0);
+  const [attachNote, setAttachNote] = useState<string | null>(null);
+
+  const attachPending = async (emp: CreatedEmployee) => {
+    const files = pending;
+    setPending([]);
+    setDocsKey((k) => k + 1);          // fresh documents card for the next person
+    if (!files.length) { setAttachNote(null); return; }
+    const results = await Promise.allSettled(
+      files.map((p) => api.uploadDocument(emp.token, p.file, p.docType)));
+    const ok = results.filter((r) => r.status === "fulfilled").length;
+    setAttachNote(ok === files.length
+      ? `${ok} document${ok === 1 ? "" : "s"} saved to ${emp.full_name}'s profile (HR only).`
+      : `Saved ${ok} of ${files.length} documents to ${emp.full_name}'s profile; upload the rest from the profile.`);
+  };
 
   const loadDivisions = () => { api.importDivisions().then(setDivisions).catch(() => setDivisions([])); };
   useEffect(loadDivisions, []);
@@ -164,13 +181,17 @@ export function DocumentImport() {
 
       <div className="di2-grid">
         <div className="di2-col">
-          <DocumentsCard onParsed={setSuggestions} />
+          <DocumentsCard key={docsKey} onParsed={(res, file, docType) => {
+            setSuggestions(res);
+            setPending((p) => [...p, { file, docType: res.doc_type || docType }]);
+          }} />
+          {attachNote && <p className="subtle" style={{ margin: 0 }}><Icon name="lock" size={12} /> {attachNote}</p>}
           <SessionList added={added} />
         </div>
         <EmployeeForm
           divisions={divisions}
           suggestions={suggestions}
-          onSaved={(emp) => { setAdded((a) => [emp, ...a]); loadDivisions(); }}
+          onSaved={(emp) => { setAdded((a) => [emp, ...a]); loadDivisions(); attachPending(emp); }}
         />
       </div>
     </div>
@@ -180,7 +201,7 @@ export function DocumentImport() {
 // ---- document upload + parse (multi) ---------------------------------------
 interface UploadedDoc { name: string; type: string; filled: number; }
 
-function DocumentsCard({ onParsed }: { onParsed: (s: CvSuggestions) => void }) {
+function DocumentsCard({ onParsed }: { onParsed: (s: CvSuggestions, file: File, docType: string) => void }) {
   const [docType, setDocType] = useState("auto");
   const [dragging, setDragging] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -198,7 +219,7 @@ function DocumentsCard({ onParsed }: { onParsed: (s: CvSuggestions) => void }) {
         + res.languages.length + res.certifications.length;
       setDocs((d) => [{ name: res.filename || file.name, type: res.doc_type, filled }, ...d]);
       setLast(res);
-      onParsed(res);
+      onParsed(res, file, docType);
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Could not read that file.");
     } finally {
